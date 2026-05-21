@@ -1,0 +1,64 @@
+name: ECOS Daily Fetch
+
+on:
+  schedule:
+    # 매일 KST 08:30 (UTC 23:30 전날)
+    - cron: '30 23 * * *'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: '수동 실행 이유 (선택)'
+        required: false
+        default: 'manual trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-and-analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── 1단계: 원천 데이터 수집 ──────────────────────────────────────────
+      - name: Step 1 - Fetch ECOS data
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: python ecos_fetch.py
+
+      # ── 2단계: 신호 대시보드 생성 ─────────────────────────────────────────
+      - name: Step 2 - Generate signals dashboard
+        run: python scripts/ecos_signals.py
+
+      # ── 3단계: 레짐 분류 보고서 생성 ──────────────────────────────────────
+      - name: Step 3 - Generate regime report
+        run: python scripts/ecos_regime.py
+
+      # ── 4단계: 결과물 커밋 & 푸시 ─────────────────────────────────────────
+      - name: Step 4 - Commit and push results
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          # 변경사항이 있을 때만 커밋
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            KST=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')
+            git commit -m "data: auto-update ${KST}"
+            git push
+          fi
