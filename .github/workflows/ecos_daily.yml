@@ -60,5 +60,7 @@ jobs:
           else
             KST=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')
             git commit -m "data: auto-update ${KST}"
+            # 동시 push 충돌 방지: rebase 후 push
+            git pull --rebase origin main
             git push
           fi
