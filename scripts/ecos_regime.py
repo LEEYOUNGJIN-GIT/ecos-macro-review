@@ -157,13 +157,7 @@ def compute_inflation_score(data: dict) -> dict:
     s, w = score_component(imp, -10.0, 15.0, weight=1.0)
     components.append(("IMPORT_PRICE_YOY", "수입물가 전년비", imp, "%", s, w))
 
-    # 6. 원/달러 환율 (수입물가 압력 대용) (weight 1.0)
-    krw = g(data, "KRW_USD")
-    s, w = score_component(krw, 1100.0, 1500.0, weight=1.0)
-    components.append(("KRW_USD", "원/달러 환율", krw, "원", s, w))
-
-    # 7. 임금(취업자 증감으로 대용) (weight 1.0)
-    #    취업자가 늘수록 임금 압력 상승 가정
+    # 6. 임금(취업자 증감으로 대용) (weight 1.0)
     emp_chg = g(data, "EMPLOYMENT_CHANGE")
     s, w = score_component(emp_chg, -100.0, 500.0, weight=1.0)
     components.append(("EMPLOYMENT_CHANGE", "취업자수 증감(임금압력 대용)", emp_chg, "천명", s, w))

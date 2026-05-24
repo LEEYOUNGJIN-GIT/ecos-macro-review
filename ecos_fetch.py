@@ -1,6 +1,6 @@
 """
 ecos_fetch.py
-한국은행 ECOS API에서 50개 거시경제 지표를 수집하고
+한국은행 ECOS API에서 37개 거시경제 지표를 수집하고
 data/ecos_latest.csv 및 data/ecos_latest.md 를 생성합니다.
 """
 
@@ -52,13 +52,6 @@ SERIES = [
     ("CORP_BOND_AA_MINUS",  "721Y001", "M", "7020000", "%",    "회사채 AA-",               None),  # 4020000(CP) → 7020000(회사채AA-)
     ("CORP_BOND_BBB_MINUS", "721Y001", "M", "7030000", "%",    "회사채 BBB-",              None),  # 4050000 → 7030000
 
-    # ── 02. 환율 ───────────────────────────────────────────────────────────
-    # 036Y001: ECOS 환율 (월별; 가용 데이터 범위 제한 시 safe_end 적용)
-    ("KRW_USD",             "036Y001", "M", "0000001", "원",   "원/달러 환율",             None),
-    ("KRW_JPY",             "036Y001", "M", "0000002", "원",   "원/100엔 환율",            None),
-    ("KRW_CNY",             "036Y001", "M", "0000003", "원",   "원/위안 환율",             None),
-    ("REER",                "036Y002", "M", "0000100", "지수", "실질실효환율",             None),
-
     # ── 03. 물가·인플레 ────────────────────────────────────────────────────
     # 901Y010: 소비자물가지수(2020=100) → 지수에서 전년비 계산
     ("CPI_YOY",             "901Y010", "M", "00",      "%",    "소비자물가 전년비",        "yoy_pct"),  # 0→00, YoY계산
@@ -89,14 +82,10 @@ SERIES = [
     ("YOUTH_UNEMPLOYMENT",  "901Y027", "M", "I61BC",   "%",    "실업률(청년 대용)",        None),  # I38C 오류 → 전체 실업률 대용
 
     # ── 06. 통화·유동성 ────────────────────────────────────────────────────
-    # 101Y004: M2 잔액(BBHA00) → YoY 계산; 데이터 지연 시 N/A
-    ("M2_YOY",              "101Y004", "M", "BBHA00",  "%",    "M2 전년비",               "yoy_pct"),
-    ("M1_YOY",              "101Y004", "M", "BBGA00",  "%",    "M1 전년비",               "yoy_pct"),
     # 102Y004: 본원통화 잔액 (ABA104=본원통화)
-    ("BASE_MONEY",          "102Y004", "M", "ABA104",  "십억원","본원통화 잔액",           None),  # BC 오류 → ABA104
-    ("HOUSEHOLD_CREDIT",    "104Y001", "Q", "BBL1A",   "십억원","가계신용 잔액",           None),  # 항목 조회 불가, 유지
+    ("BASE_MONEY",          "102Y004", "M", "ABA104",  "십억원","본원통화 잔액",           None),
     # 104Y014: 기업대출 (BCA8=합계)
-    ("CORP_LOAN",           "104Y014", "M", "BCA8",    "십억원","기업대출 잔액",           None),  # BCE 오류 → BCA8(합계)
+    ("CORP_LOAN",           "104Y014", "M", "BCA8",    "십억원","기업대출 잔액",           None),
 
     # ── 07. 주택시장 ───────────────────────────────────────────────────────
     # 901Y092: 부동산거래 금액(매매/임대) — 가격지수 아님, 금액 데이터
@@ -108,31 +97,25 @@ SERIES = [
 
     # ── 08. 수출입·무역 ────────────────────────────────────────────────────
     # 403Y003: 수출물량지수(*AA=총지수) → YoY 계산
-    ("EXPORT_YOY",          "403Y003", "M", "*AA",     "%",    "수출물량 전년비",          "yoy_pct"),  # I38301 오류 → *AA+YoY
+    ("EXPORT_YOY",          "403Y003", "M", "*AA",     "%",    "수출물량 전년비",          "yoy_pct"),
     # 403Y001: 수입물량지수(*AA=총지수) → YoY 계산
-    ("IMPORT_YOY",          "403Y001", "M", "*AA",     "%",    "수입물량 전년비",          "yoy_pct"),  # I38302 오류 → *AA+YoY
-    ("TRADE_BALANCE",       "403Y003", "M", "I38303",  "백만달러","무역수지",              None),  # 확인 필요
-    ("CURRENT_ACCOUNT",     "403Y001", "M", "I38101",  "백만달러","경상수지",              None),  # 확인 필요
-    ("EXPORT_VOLUME_YOY",   "403Y003", "M", "*AA",     "%",    "수출물량지수 전년비",      "yoy_pct"),  # I38304 → *AA+YoY
+    ("IMPORT_YOY",          "403Y001", "M", "*AA",     "%",    "수입물량 전년비",          "yoy_pct"),
+    ("EXPORT_VOLUME_YOY",   "403Y003", "M", "*AA",     "%",    "수출물량지수 전년비",      "yoy_pct"),
 
     # ── 09. 소비·산업 ─────────────────────────────────────────────────────
     # 402Y015: 소매판매지수(*AA=총지수) → YoY 계산
-    ("RETAIL_SALES_YOY",    "402Y015", "M", "*AA",     "%",    "소매판매 전년비",          "yoy_pct"),  # FM2A 오류 → *AA+YoY
-    # 402Y014: 산업생산지수(*AA=총지수) → YoY 계산 (402Y012 항목 없음)
-    ("INDPRO_YOY",          "402Y014", "M", "*AA",     "%",    "광공업생산 전년비",        "yoy_pct"),  # 402Y012/BSBI 오류 → 402Y014/*AA
-    ("CAPEX_YOY",           "402Y012", "M", "BSCI",    "%",    "설비투자 전년비",          None),  # 항목 미확인
-    ("CONSTRUCTION_YOY",    "402Y012", "M", "BSDI",    "%",    "건설기성 전년비",          None),  # 항목 미확인
-    # 511Y004: 소비자동향CSI (FMAA=소비자동향CSI, FAA 오류)
-    ("CSI",                 "511Y004", "M", "FMAA",    "지수", "소비자동향CSI",           None),  # FAA 오류 → FMAA
+    ("RETAIL_SALES_YOY",    "402Y015", "M", "*AA",     "%",    "소매판매 전년비",          "yoy_pct"),
+    # 402Y014: 산업생산지수(*AA=총지수) → YoY 계산
+    ("INDPRO_YOY",          "402Y014", "M", "*AA",     "%",    "광공업생산 전년비",        "yoy_pct"),
+    # 511Y004: 소비자동향CSI
+    ("CSI",                 "511Y004", "M", "FMAA",    "지수", "소비자동향CSI",           None),
 
     # ── 10. 금융시장 ───────────────────────────────────────────────────────
     # 802Y001: 주가지수 (월별 없음, 일별로 최근값 사용)
-    ("KOSPI",               "802Y001", "D", "0001000", "pt",   "KOSPI 지수",             None),  # 0001 → 0001000, M→D
-    ("KOSDAQ",              "802Y001", "D", "0089000", "pt",   "KOSDAQ 지수",            None),  # 0002 → 0089000, M→D
-    ("FOREIGN_NET_BUY",     "802Y004", "M", "7",       "십억원","외국인 주식 순매수",     None),  # 항목 조회 불가
+    ("KOSPI",               "802Y001", "D", "0001000", "pt",   "KOSPI 지수",             None),
+    ("KOSDAQ",              "802Y001", "D", "0089000", "pt",   "KOSDAQ 지수",            None),
     ("CD_BOK_SPREAD",       "721Y001", "M", "SPREAD",  "%",    "CD-기준금리 스프레드 (파생)", None),
     ("CREDIT_SPREAD",       "721Y001", "M", "CSPREAD", "%",    "회사채BBB-국채3Y 스프레드 (파생)", None),
-    ("DSR_HOUSEHOLD",       "104Y001", "Q", "DSR",     "%",    "가계부채 DSR (파생)",     None),
 ]
 
 # ---------------------------------------------------------------------------
@@ -308,12 +291,6 @@ def _compute_derived(records: dict) -> dict:
         records["CREDIT_SPREAD"]["value"] = cspread
         records["CREDIT_SPREAD"]["date"] = records.get("CORP_BOND_BBB_MINUS", {}).get("date", "N/A")
 
-    # DSR 대용치: 가계신용 잔액 유지
-    hh = records.get("HOUSEHOLD_CREDIT", {}).get("value")
-    if "DSR_HOUSEHOLD" in records:
-        records["DSR_HOUSEHOLD"]["value"] = hh
-        records["DSR_HOUSEHOLD"]["date"] = records.get("HOUSEHOLD_CREDIT", {}).get("date", "N/A")
-
     return records
 
 
@@ -381,16 +358,15 @@ def collect_all() -> pd.DataFrame:
 CATEGORY_MAP = {
     "01_금리·채권":  ["BOK_BASE_RATE", "GOV_BOND_3Y", "GOV_BOND_10Y", "CD_91D",
                      "CORP_BOND_AA_MINUS", "CORP_BOND_BBB_MINUS"],
-    "02_환율":      ["KRW_USD", "KRW_JPY", "KRW_CNY", "REER"],
-    "03_물가·인플레": ["CPI_YOY", "CORE_CPI_YOY", "PPI_YOY", "INFLATION_EXPECT", "IMPORT_PRICE_YOY"],
-    "04_GDP·경기":  ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY", "CLI_COINCIDENT", "CLI_LEADING", "BSI_ALL"],
-    "05_노동시장":   ["UNEMPLOYMENT_RATE", "EMPLOYMENT_CHANGE", "LABOR_PARTICIPATION",
+    "02_물가·인플레": ["CPI_YOY", "CORE_CPI_YOY", "PPI_YOY", "INFLATION_EXPECT", "IMPORT_PRICE_YOY"],
+    "03_GDP·경기":  ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY", "CLI_COINCIDENT", "CLI_LEADING", "BSI_ALL"],
+    "04_노동시장":   ["UNEMPLOYMENT_RATE", "EMPLOYMENT_CHANGE", "LABOR_PARTICIPATION",
                      "EMPLOYMENT_RATE", "YOUTH_UNEMPLOYMENT"],
-    "06_통화·유동성": ["M2_YOY", "M1_YOY", "BASE_MONEY", "HOUSEHOLD_CREDIT", "CORP_LOAN"],
-    "07_주택시장":   ["HOUSE_PRICE_BUY", "HOUSE_PRICE_RENT", "APT_PRICE_BUY", "HOUSING_START"],
-    "08_수출입·무역": ["EXPORT_YOY", "IMPORT_YOY", "TRADE_BALANCE", "CURRENT_ACCOUNT", "EXPORT_VOLUME_YOY"],
-    "09_소비·산업":  ["RETAIL_SALES_YOY", "INDPRO_YOY", "CAPEX_YOY", "CONSTRUCTION_YOY", "CSI"],
-    "10_금융시장":   ["KOSPI", "KOSDAQ", "FOREIGN_NET_BUY", "CD_BOK_SPREAD", "CREDIT_SPREAD", "DSR_HOUSEHOLD"],
+    "05_통화·유동성": ["BASE_MONEY", "CORP_LOAN"],
+    "06_주택시장":   ["HOUSE_PRICE_BUY", "HOUSE_PRICE_RENT", "APT_PRICE_BUY", "HOUSING_START"],
+    "07_수출입·무역": ["EXPORT_YOY", "IMPORT_YOY", "EXPORT_VOLUME_YOY"],
+    "08_소비·산업":  ["RETAIL_SALES_YOY", "INDPRO_YOY", "CSI"],
+    "09_금융시장":   ["KOSPI", "KOSDAQ", "CD_BOK_SPREAD", "CREDIT_SPREAD"],
 }
 
 

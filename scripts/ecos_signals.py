@@ -1,6 +1,6 @@
 """
 scripts/ecos_signals.py
-data/ecos_latest.csv 를 읽어 15개 파생 신호와 종합 위험도를 계산하고
+data/ecos_latest.csv 를 읽어 12개 파생 신호와 종합 위험도를 계산하고
 data/ecos_signals.md 를 생성합니다.
 """
 
@@ -156,28 +156,7 @@ def sig_04_inflation_expectation(d: dict) -> dict:
     }
 
 
-def sig_05_fx_trend(d: dict) -> dict:
-    """5. 환율 트렌드 (원/달러 YoY 방향, REER)"""
-    krw = g(d, "KRW_USD")
-    reer = g(d, "REER")
-    # 원/달러 상승(원화 약세) → 위험
-    # REER 하락(실질 약세) → 위험
-    # 단순 원/달러 수준 기반: 1300 이하 안전, 1500 이상 위험
-    score_krw = score_0_10(krw, 1100.0, 1500.0) if krw is not None else None
-    # REER: 100 이상 강세, 85 이하 약세
-    score_reer = score_0_10(reer, 85.0, 105.0, invert=True) if reer is not None else None
-    vals = [v for v in [score_krw, score_reer] if v is not None]
-    score = round(float(np.mean(vals)), 2) if vals else None
-    return {
-        "id": "SIG05", "name": "환율 트렌드",
-        "value": krw, "unit": "원/달러",
-        "detail": f"원/달러({fmt(krw, 0)}원) / REER({fmt(reer)})",
-        "threshold": "원/달러 ≥1400 약세 경보 / REER ≤90 구조적 약세",
-        "score": score,
-    }
-
-
-def sig_06_labor_market(d: dict) -> dict:
+def sig_05_labor_market(d: dict) -> dict:
     """6. 노동시장 종합"""
     unemp = g(d, "UNEMPLOYMENT_RATE")
     emp_chg = g(d, "EMPLOYMENT_CHANGE")
@@ -194,7 +173,7 @@ def sig_06_labor_market(d: dict) -> dict:
     vals = [v for v in [s_unemp, s_emp, s_erate, s_youth] if v is not None]
     score = round(float(np.mean(vals)), 2) if vals else None
     return {
-        "id": "SIG06", "name": "노동시장 종합",
+        "id": "SIG05", "name": "노동시장 종합",
         "value": unemp, "unit": "% (실업률)",
         "detail": (f"실업률({fmt(unemp)}%) / 취업자증감({fmt(emp_chg, 0)}천명) / "
                    f"고용률({fmt(emp_rate)}%) / 청년실업률({fmt(youth_unemp)}%)"),
@@ -203,8 +182,8 @@ def sig_06_labor_market(d: dict) -> dict:
     }
 
 
-def sig_07_consumer_sentiment(d: dict) -> dict:
-    """7. 소비자심리 (CSI, 소매판매 YoY)"""
+def sig_06_consumer_sentiment(d: dict) -> dict:
+    """6. 소비자심리 (CSI, 소매판매 YoY)"""
     csi = g(d, "CSI")
     retail = g(d, "RETAIL_SALES_YOY")
     # CSI: 100 기준선, <80 심각 위축
@@ -214,7 +193,7 @@ def sig_07_consumer_sentiment(d: dict) -> dict:
     vals = [v for v in [s_csi, s_retail] if v is not None]
     score = round(float(np.mean(vals)), 2) if vals else None
     return {
-        "id": "SIG07", "name": "소비자심리",
+        "id": "SIG06", "name": "소비자심리",
         "value": csi, "unit": "지수",
         "detail": f"CSI({fmt(csi)}) / 소매판매YoY({fmt(retail)}%)",
         "threshold": "CSI <80 심각 위축 / <90 경계",
@@ -222,34 +201,8 @@ def sig_07_consumer_sentiment(d: dict) -> dict:
     }
 
 
-def sig_08_monetary_liquidity(d: dict) -> dict:
-    """8. 통화·유동성"""
-    m2 = g(d, "M2_YOY")
-    m1 = g(d, "M1_YOY")
-    # M2 YoY: -1% 이하 → 긴축 위험, +10% 이상 → 과잉 위험
-    # 양방향 위험 → 편의상 중립(5%) 대비 편차
-    if m2 is None:
-        s_m2 = None
-    else:
-        dev = abs(m2 - 5.0)
-        s_m2 = round(min(10.0, dev * 1.0), 2)
-    s_m1 = None
-    if m1 is not None:
-        dev1 = abs(m1 - 5.0)
-        s_m1 = round(min(10.0, dev1 * 1.0), 2)
-    vals = [v for v in [s_m2, s_m1] if v is not None]
-    score = round(float(np.mean(vals)), 2) if vals else None
-    return {
-        "id": "SIG08", "name": "통화·유동성",
-        "value": m2, "unit": "% YoY (M2)",
-        "detail": f"M2 YoY({fmt(m2)}%) / M1 YoY({fmt(m1)}%)",
-        "threshold": "M2 YoY <0% 긴축 / >12% 과잉 공급",
-        "score": score,
-    }
-
-
-def sig_09_credit_stress(d: dict) -> dict:
-    """9. 신용 스트레스 (회사채-국채 스프레드, CD-기준금리 스프레드)"""
+def sig_07_credit_stress(d: dict) -> dict:
+    """7. 신용 스트레스 (회사채-국채 스프레드, CD-기준금리 스프레드)"""
     credit_sp = g(d, "CREDIT_SPREAD")
     cd_sp = g(d, "CD_BOK_SPREAD")
     # 크레딧 스프레드: 0.5 → 안전, 3.0 이상 → 위험
@@ -259,7 +212,7 @@ def sig_09_credit_stress(d: dict) -> dict:
     vals = [v for v in [s_credit, s_cd] if v is not None]
     score = round(float(np.mean(vals)), 2) if vals else None
     return {
-        "id": "SIG09", "name": "신용 스트레스",
+        "id": "SIG07", "name": "신용 스트레스",
         "value": credit_sp, "unit": "%p (크레딧 스프레드)",
         "detail": f"회사채BBB-국채3Y({fmt(credit_sp)}%p) / CD-기준금리({fmt(cd_sp)}%p)",
         "threshold": "크레딧 스프레드 ≥2.0 경계 / ≥3.0 위험",
@@ -267,8 +220,8 @@ def sig_09_credit_stress(d: dict) -> dict:
     }
 
 
-def sig_10_business_cycle(d: dict) -> dict:
-    """10. 경기 사이클 (동행·선행지수 순환변동치)"""
+def sig_08_business_cycle(d: dict) -> dict:
+    """8. 경기 사이클 (동행·선행지수 순환변동치)"""
     coin = g(d, "CLI_COINCIDENT")
     lead = g(d, "CLI_LEADING")
     # 순환변동치 100 기준: <98 → 하강, <96 → 심각
@@ -277,7 +230,7 @@ def sig_10_business_cycle(d: dict) -> dict:
     vals = [v for v in [s_coin, s_lead] if v is not None]
     score = round(float(np.mean(vals)), 2) if vals else None
     return {
-        "id": "SIG10", "name": "경기 사이클",
+        "id": "SIG08", "name": "경기 사이클",
         "value": coin, "unit": "지수 (동행순환변동치)",
         "detail": f"동행지수순환변동({fmt(coin)}) / 선행지수순환변동({fmt(lead)})",
         "threshold": "<98 경기 하강 / <96 침체 신호",
@@ -285,47 +238,39 @@ def sig_10_business_cycle(d: dict) -> dict:
     }
 
 
-def sig_11_industrial_momentum(d: dict) -> dict:
-    """11. 산업생산 모멘텀 (광공업생산 YoY)"""
+def sig_09_industrial_momentum(d: dict) -> dict:
+    """9. 산업생산 모멘텀 (광공업생산 YoY)"""
     indpro = g(d, "INDPRO_YOY")
-    capex = g(d, "CAPEX_YOY")
     # 광공업생산 YoY: -5% → 위험, +5% → 안전
     s_ip = score_0_10(indpro, -5.0, 5.0, invert=True) if indpro is not None else None
-    # 설비투자 YoY: -10% → 위험, +5% → 안전
-    s_capex = score_0_10(capex, -10.0, 5.0, invert=True) if capex is not None else None
-    vals = [v for v in [s_ip, s_capex] if v is not None]
-    score = round(float(np.mean(vals)), 2) if vals else None
+    score = s_ip
     return {
-        "id": "SIG11", "name": "산업생산 모멘텀",
+        "id": "SIG09", "name": "산업생산 모멘텀",
         "value": indpro, "unit": "% YoY",
-        "detail": f"광공업생산YoY({fmt(indpro)}%) / 설비투자YoY({fmt(capex)}%)",
+        "detail": f"광공업생산YoY({fmt(indpro)}%)",
         "threshold": "광공업생산 <-3% 위험 / 연속 3개월 감소 경보",
         "score": score,
     }
 
 
-def sig_12_trade_balance(d: dict) -> dict:
-    """12. 무역·경상수지"""
-    trade = g(d, "TRADE_BALANCE")
-    current = g(d, "CURRENT_ACCOUNT")
+def sig_10_trade(d: dict) -> dict:
+    """10. 수출 모멘텀 (수출물량 YoY)"""
     exp_yoy = g(d, "EXPORT_YOY")
-    # 무역수지: +5000M$ 이상 → 안전, -3000M$ → 위험
-    s_trade = score_0_10(trade, -3000.0, 5000.0, invert=True) if trade is not None else None
+    imp_yoy = g(d, "IMPORT_YOY")
     # 수출 YoY: -15% → 위험, +10% → 안전
     s_exp = score_0_10(exp_yoy, -15.0, 10.0, invert=True) if exp_yoy is not None else None
-    vals = [v for v in [s_trade, s_exp] if v is not None]
-    score = round(float(np.mean(vals)), 2) if vals else None
+    score = s_exp
     return {
-        "id": "SIG12", "name": "무역·경상수지",
-        "value": trade, "unit": "백만달러 (무역수지)",
-        "detail": f"무역수지({fmt(trade, 0)}M$) / 경상수지({fmt(current, 0)}M$) / 수출YoY({fmt(exp_yoy)}%)",
-        "threshold": "무역수지 <0 적자 전환 경보",
+        "id": "SIG10", "name": "수출 모멘텀",
+        "value": exp_yoy, "unit": "% YoY (수출물량)",
+        "detail": f"수출물량YoY({fmt(exp_yoy)}%) / 수입물량YoY({fmt(imp_yoy)}%)",
+        "threshold": "수출 YoY <-10% 위험 / 연속 감소 경보",
         "score": score,
     }
 
 
-def sig_13_housing_market(d: dict) -> dict:
-    """13. 주택시장"""
+def sig_11_housing_market(d: dict) -> dict:
+    """11. 주택시장"""
     buy = g(d, "HOUSE_PRICE_BUY")
     rent = g(d, "HOUSE_PRICE_RENT")
     apt = g(d, "APT_PRICE_BUY")
@@ -338,54 +283,25 @@ def sig_13_housing_market(d: dict) -> dict:
     vals = [v for v in [s_buy, s_gap] if v is not None]
     score = round(float(np.mean(vals)), 2) if vals else None
     return {
-        "id": "SIG13", "name": "주택시장",
-        "value": buy, "unit": "지수 (매매가격)",
-        "detail": f"매매가격({fmt(buy)}) / 전세가격({fmt(rent)}) / 아파트({fmt(apt)}) / 착공({fmt(start, 0)}호)",
-        "threshold": "매매가격지수 >115 과열 / 착공 급감 → 공급 부족 신호",
+        "id": "SIG11", "name": "주택시장",
+        "value": buy, "unit": "십억원 (매매금액)",
+        "detail": f"매매({fmt(buy, 0)}) / 임대({fmt(rent, 0)}) / 아파트({fmt(apt, 0)}) / 착공지수({fmt(start)})",
+        "threshold": "매매금액 급등 → 과열 신호 / 착공지수 급감 → 공급 부족",
         "score": score,
     }
 
 
-def sig_14_kospi_regime(d: dict) -> dict:
-    """14. KOSPI 레짐"""
+def sig_12_kospi_regime(d: dict) -> dict:
+    """12. KOSPI 레짐"""
     kospi = g(d, "KOSPI")
-    foreign = g(d, "FOREIGN_NET_BUY")
     # KOSPI 수준: 3000 이상 → 안전, 2000 이하 → 위험
     s_kospi = score_0_10(kospi, 1800.0, 3000.0, invert=True) if kospi is not None else None
-    # 외국인 순매수: +1조 이상 → 안전, -2조 이하 → 위험
-    s_foreign = score_0_10(foreign, -2000.0, 1000.0, invert=True) if foreign is not None else None
-    vals = [v for v in [s_kospi, s_foreign] if v is not None]
-    score = round(float(np.mean(vals)), 2) if vals else None
+    score = s_kospi
     return {
-        "id": "SIG14", "name": "KOSPI 레짐",
+        "id": "SIG12", "name": "KOSPI 레짐",
         "value": kospi, "unit": "pt",
-        "detail": f"KOSPI({fmt(kospi, 0)}pt) / 외국인순매수({fmt(foreign, 0)}십억원)",
-        "threshold": "KOSPI <2000 약세장 / 외국인 연속 순매도 → 자금유출 경보",
-        "score": score,
-    }
-
-
-def sig_15_kor_us_rate_diff(d: dict) -> dict:
-    """15. 한·미 금리차"""
-    kor = g(d, "BOK_BASE_RATE")
-    # 미국 기준금리는 직접 수집 불가 → 대용치로 최근 알려진 수준 사용 또는 N/A
-    # 실제 운영 시 FRED API 연동 또는 별도 수동 업데이트 필요
-    us_fed = g(d, "KOR_US_RATE_DIFF")  # 선택적 파생 지표
-    diff = None
-    note = "미국 기준금리 별도 입력 필요 (FRED 연동 권장)"
-    if kor is not None and us_fed is not None:
-        diff = round(kor - us_fed, 4)
-        note = ""
-    # 한·미 역전 폭: <-2.0 → 위험 (자본유출), >0 → 안전
-    if diff is None:
-        score = None
-    else:
-        score = score_0_10(diff, -2.5, 1.0, invert=True)
-    return {
-        "id": "SIG15", "name": "한·미 금리차",
-        "value": diff if diff is not None else kor, "unit": "%p (한국-미국)",
-        "detail": f"한국 기준금리({fmt(kor)}%) / 미국 기준금리(수동 입력 권장) → 차이: {fmt(diff)}%p  {note}",
-        "threshold": "<-1.5%p 자본유출 경보 / <-2.5%p 심각",
+        "detail": f"KOSPI({fmt(kospi, 0)}pt)",
+        "threshold": "KOSPI <2000 약세장 / <1800 심각",
         "score": score,
     }
 
@@ -395,10 +311,9 @@ def sig_15_kor_us_rate_diff(d: dict) -> dict:
 # ---------------------------------------------------------------------------
 SIGNAL_FUNCS = [
     sig_01_term_spread, sig_02_real_rate_gap, sig_03_inflation_regime,
-    sig_04_inflation_expectation, sig_05_fx_trend, sig_06_labor_market,
-    sig_07_consumer_sentiment, sig_08_monetary_liquidity, sig_09_credit_stress,
-    sig_10_business_cycle, sig_11_industrial_momentum, sig_12_trade_balance,
-    sig_13_housing_market, sig_14_kospi_regime, sig_15_kor_us_rate_diff,
+    sig_04_inflation_expectation, sig_05_labor_market, sig_06_consumer_sentiment,
+    sig_07_credit_stress, sig_08_business_cycle, sig_09_industrial_momentum,
+    sig_10_trade, sig_11_housing_market, sig_12_kospi_regime,
 ]
 
 
@@ -434,7 +349,7 @@ def build_md(signals: list[dict], generated_at: str) -> str:
         "",
         "---",
         "",
-        "## 15개 신호 요약",
+        "## 12개 신호 요약",
         "",
         "| ID | 신호명 | 현재값 | 점수 | 등급 |",
         "|----|------|------|-----|-----|",
