@@ -1,6 +1,6 @@
 # ECOS 한국 거시경제 팩트 테이블
 
-**업데이트**: 2026-05-24 01:29:13 (KST)
+**업데이트**: 2026-05-24 19:52:27 (KST)
 
 ---
 
@@ -8,12 +8,12 @@
 
 | 시리즈 ID | 지표명 | 최신값 | 단위 | 기준일 |
 |---------|------|------|-----|------|
-| BOK_BASE_RATE | 한국은행 기준금리 | nan | % | N/A |
+| BOK_BASE_RATE | 한국은행 기준금리 | 2.5 | % | 202604 |
 | GOV_BOND_3Y | 국고채 3년 | 3.413 | % | 202604 |
-| GOV_BOND_10Y | 국고채 10년 | 2.959 | % | 202604 |
-| CD_91D | CD 91일 | nan | % | N/A |
-| CORP_BOND_AA_MINUS | 회사채 AA- | 3.1 | % | 202604 |
-| CORP_BOND_BBB_MINUS | 회사채 BBB- | nan | % | N/A |
+| GOV_BOND_10Y | 국고채 10년 | 3.737 | % | 202604 |
+| CD_91D | CD 91일 | 2.82 | % | 202604 |
+| CORP_BOND_AA_MINUS | 회사채 AA- | 4.07 | % | 202604 |
+| CORP_BOND_BBB_MINUS | 회사채 BBB- | 9.871 | % | 202604 |
 
 ## 02_환율
 
@@ -28,78 +28,78 @@
 
 | 시리즈 ID | 지표명 | 최신값 | 단위 | 기준일 |
 |---------|------|------|-----|------|
-| CPI_YOY | 소비자물가 전년비 | nan | % | N/A |
-| CORE_CPI_YOY | 근원CPI 전년비 | 121.51 | % | 202604 |
-| PPI_YOY | 생산자물가 전년비 | 119.37 | % | 202604 |
-| INFLATION_EXPECT | 기대인플레이션 | nan | % | N/A |
-| IMPORT_PRICE_YOY | 수입물가 전년비 | nan | % | N/A |
+| CPI_YOY | 소비자물가 전년비 | 2.57 | % | 202604 |
+| CORE_CPI_YOY | 근원CPI 전년비 | 4.18 | % | 202604 |
+| PPI_YOY | 생산자물가 전년비 | 2.57 | % | 202604 |
+| INFLATION_EXPECT | 물가전망CSI(기대인플레 대용) | 58 | CSI | 202304 |
+| IMPORT_PRICE_YOY | 수입금액 전년비 | 19.44 | % | 202603 |
 
 ## 04_GDP·경기
 
 | 시리즈 ID | 지표명 | 최신값 | 단위 | 기준일 |
 |---------|------|------|-----|------|
-| GDP_GROWTH_QOQ | 실질GDP 전기비 | nan | % | N/A |
-| GDP_GROWTH_YOY | 실질GDP 전년비 | nan | % | N/A |
-| CLI_COINCIDENT | 경기동행지수 순환변동치 | 126.4 | 지수 | 202603 |
-| CLI_LEADING | 경기선행지수 순환변동치 | 116.2 | 지수 | 202603 |
-| BSI_ALL | 기업경기실사지수 전산업 | nan | BSI | N/A |
+| GDP_GROWTH_QOQ | 실질GDP 전기비 | 3.85 | % | 2026Q1 |
+| GDP_GROWTH_YOY | 실질GDP 전년비 | 6.42 | % | 2026Q1 |
+| CLI_COINCIDENT | 경기동행지수 순환변동치 | 100.1 | 지수 | 202603 |
+| CLI_LEADING | 경기선행지수 순환변동치 | 103.5 | 지수 | 202603 |
+| BSI_ALL | 기업경기실사지수 전산업 | 80 | BSI | 202410 |
 
 ## 05_노동시장
 
 | 시리즈 ID | 지표명 | 최신값 | 단위 | 기준일 |
 |---------|------|------|-----|------|
-| UNEMPLOYMENT_RATE | 실업률 | nan | % | N/A |
-| EMPLOYMENT_CHANGE | 취업자수 전년비 | nan | 천명 | N/A |
-| LABOR_PARTICIPATION | 경제활동참가율 | nan | % | N/A |
-| EMPLOYMENT_RATE | 고용률 | nan | % | N/A |
-| YOUTH_UNEMPLOYMENT | 청년실업률 (15-29세) | nan | % | N/A |
+| UNEMPLOYMENT_RATE | 실업률 | 2.8 | % | 202604 |
+| EMPLOYMENT_CHANGE | 취업자수 전년비 | 58 | 천명 | 202604 |
+| LABOR_PARTICIPATION | 경제활동참가율 | 64.5 | % | 202604 |
+| EMPLOYMENT_RATE | 고용률 | 62.7 | % | 202604 |
+| YOUTH_UNEMPLOYMENT | 실업률(청년 대용) | 2.8 | % | 202604 |
 
 ## 06_통화·유동성
 
 | 시리즈 ID | 지표명 | 최신값 | 단위 | 기준일 |
 |---------|------|------|-----|------|
-| M2_YOY | M2(광의통화) 전년비 | nan | % | N/A |
-| M1_YOY | M1(협의통화) 전년비 | nan | % | N/A |
-| BASE_MONEY | 본원통화 잔액 | nan | 십억원 | N/A |
+| M2_YOY | M2 전년비 | nan | % | N/A |
+| M1_YOY | M1 전년비 | nan | % | N/A |
+| BASE_MONEY | 본원통화 잔액 | 202,043 | 십억원 | 202603 |
 | HOUSEHOLD_CREDIT | 가계신용 잔액 | nan | 십억원 | N/A |
-| CORP_LOAN | 기업대출 잔액 | nan | 십억원 | N/A |
+| CORP_LOAN | 기업대출 잔액 | 2,809,084.2 | 십억원 | 202603 |
 
 ## 07_주택시장
 
 | 시리즈 ID | 지표명 | 최신값 | 단위 | 기준일 |
 |---------|------|------|-----|------|
-| HOUSE_PRICE_BUY | 주택매매가격지수 | nan | 지수 | N/A |
-| HOUSE_PRICE_RENT | 주택전세가격지수 | nan | 지수 | N/A |
-| APT_PRICE_BUY | 아파트매매가격지수 | nan | 지수 | N/A |
-| HOUSING_START | 주택착공 건수 | nan | 호 | N/A |
+| HOUSE_PRICE_BUY | 주택매매금액 합계 | 85,867,478 | 십억원 | 202604 |
+| HOUSE_PRICE_RENT | 주택임대금액 합계 | 62,112,591 | 십억원 | 202604 |
+| APT_PRICE_BUY | 아파트매매금액 | 1,208,080 | 십억원 | 202604 |
+| HOUSING_START | 주택착공지수 | 137.1 | 지수 | 202603 |
 
 ## 08_수출입·무역
 
 | 시리즈 ID | 지표명 | 최신값 | 단위 | 기준일 |
 |---------|------|------|-----|------|
-| EXPORT_YOY | 수출 전년비 | nan | % | N/A |
-| IMPORT_YOY | 수입 전년비 | nan | % | N/A |
+| EXPORT_YOY | 수출물량 전년비 | 16.77 | % | 202604 |
+| IMPORT_YOY | 수입물량 전년비 | 50.24 | % | 202604 |
 | TRADE_BALANCE | 무역수지 | nan | 백만달러 | N/A |
 | CURRENT_ACCOUNT | 경상수지 | nan | 백만달러 | N/A |
-| EXPORT_VOLUME_YOY | 수출물량지수 전년비 | nan | % | N/A |
+| EXPORT_VOLUME_YOY | 수출물량지수 전년비 | 16.77 | % | 202604 |
 
 ## 09_소비·산업
 
 | 시리즈 ID | 지표명 | 최신값 | 단위 | 기준일 |
 |---------|------|------|-----|------|
-| RETAIL_SALES_YOY | 소매판매 전년비 | nan | % | N/A |
-| INDPRO_YOY | 광공업생산 전년비 | nan | % | N/A |
+| RETAIL_SALES_YOY | 소매판매 전년비 | 40.85 | % | 202604 |
+| INDPRO_YOY | 광공업생산 전년비 | 40.85 | % | 202604 |
 | CAPEX_YOY | 설비투자 전년비 | nan | % | N/A |
 | CONSTRUCTION_YOY | 건설기성 전년비 | nan | % | N/A |
-| CSI | 소비자심리지수(CSI) | nan | 지수 | N/A |
+| CSI | 소비자동향CSI | 86 | 지수 | 202304 |
 
 ## 10_금융시장
 
 | 시리즈 ID | 지표명 | 최신값 | 단위 | 기준일 |
 |---------|------|------|-----|------|
-| KOSPI | KOSPI 지수 | nan | pt | N/A |
-| KOSDAQ | KOSDAQ 지수 | nan | pt | N/A |
+| KOSPI | KOSPI 지수 | 2,612.43 | pt | 20241028 |
+| KOSDAQ | KOSDAQ 지수 | 740.48 | pt | 20241028 |
 | FOREIGN_NET_BUY | 외국인 주식 순매수 | nan | 십억원 | N/A |
-| CD_BOK_SPREAD | CD-기준금리 스프레드 (파생) | nan | % | N/A |
-| CREDIT_SPREAD | 회사채BBB-국채3Y 스프레드 (파생) | nan | % | N/A |
+| CD_BOK_SPREAD | CD-기준금리 스프레드 (파생) | 0.32 | % | 202604 |
+| CREDIT_SPREAD | 회사채BBB-국채3Y 스프레드 (파생) | 6.458 | % | 202604 |
 | DSR_HOUSEHOLD | 가계부채 DSR (파생) | nan | % | N/A |

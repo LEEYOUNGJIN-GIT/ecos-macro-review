@@ -8,7 +8,7 @@ import os
 import time
 import requests
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -22,7 +22,7 @@ except ImportError:
 
 API_KEY = os.environ.get("ECOS_API_KEY", "sample")
 BASE_URL = "https://ecos.bok.or.kr/api/StatisticSearch"
-CALL_INTERVAL = 0.3          # 초 (월 10,000건 제한 대응)
+CALL_INTERVAL = 0.3
 DATA_DIR = Path("data")
 HISTORY_DIR = DATA_DIR / "ecos_history"
 
@@ -31,122 +31,176 @@ HISTORY_DIR.mkdir(exist_ok=True)
 
 # ---------------------------------------------------------------------------
 # 지표 레지스트리
-# 형식: (이름, 통계표코드, 주기, 항목코드, 단위)
+# 형식: (이름, 통계표코드, 주기, 항목코드, 단위, 레이블, 변환방식)
+#
+# 변환방식(calc_type):
+#   None      - 최신값 직접 사용
+#   "yoy_pct" - 지수에서 전년동기비(%) 계산
+#   "yoy_diff"- 수준값에서 전년동기 차이 계산 (예: 취업자수 증감)
+#   "qoq_pct" - 지수에서 전분기비(%) 계산
 #
 # ECOS 통계표 코드 확인: https://ecos.bok.or.kr/api/#/DevGuide/StatisticsSearch
-# 항목코드가 빈 문자열("")이면 해당 통계표의 첫 번째(기본) 항목을 사용
 # ---------------------------------------------------------------------------
 SERIES = [
     # ── 01. 금리·채권 ──────────────────────────────────────────────────────
-    ("BOK_BASE_RATE",       "060Y001", "M", "0101000", "%",    "한국은행 기준금리"),
-    ("GOV_BOND_3Y",         "721Y001", "M", "5020000", "%",    "국고채 3년"),
-    ("GOV_BOND_10Y",        "721Y001", "M", "5030000", "%",    "국고채 10년"),
-    ("CD_91D",              "721Y001", "M", "0020000", "%",    "CD 91일"),
-    ("CORP_BOND_AA_MINUS",  "721Y001", "M", "4020000", "%",    "회사채 AA-"),
-    ("CORP_BOND_BBB_MINUS", "721Y001", "M", "4050000", "%",    "회사채 BBB-"),
+    # 722Y001: 한국은행 기준금리 및 여수신금리 (060Y001 오류 → 722Y001 수정)
+    ("BOK_BASE_RATE",       "722Y001", "M", "0101000", "%",    "한국은행 기준금리",         None),
+    # 721Y001: 시장금리 (5020000=국고3Y, 5050000=국고10Y, 2010000=CD91일)
+    ("GOV_BOND_3Y",         "721Y001", "M", "5020000", "%",    "국고채 3년",               None),
+    ("GOV_BOND_10Y",        "721Y001", "M", "5050000", "%",    "국고채 10년",              None),  # 5030000(1년) → 5050000(10년)
+    ("CD_91D",              "721Y001", "M", "2010000", "%",    "CD 91일",                  None),  # 0020000 → 2010000
+    ("CORP_BOND_AA_MINUS",  "721Y001", "M", "7020000", "%",    "회사채 AA-",               None),  # 4020000(CP) → 7020000(회사채AA-)
+    ("CORP_BOND_BBB_MINUS", "721Y001", "M", "7030000", "%",    "회사채 BBB-",              None),  # 4050000 → 7030000
 
     # ── 02. 환율 ───────────────────────────────────────────────────────────
-    ("KRW_USD",             "036Y001", "M", "0000001", "원",   "원/달러 환율"),
-    ("KRW_JPY",             "036Y001", "M", "0000002", "원",   "원/100엔 환율"),
-    ("KRW_CNY",             "036Y001", "M", "0000003", "원",   "원/위안 환율"),
-    ("REER",                "036Y002", "M", "0000100", "지수", "실질실효환율"),
+    # 036Y001: ECOS 환율 (월별; 가용 데이터 범위 제한 시 safe_end 적용)
+    ("KRW_USD",             "036Y001", "M", "0000001", "원",   "원/달러 환율",             None),
+    ("KRW_JPY",             "036Y001", "M", "0000002", "원",   "원/100엔 환율",            None),
+    ("KRW_CNY",             "036Y001", "M", "0000003", "원",   "원/위안 환율",             None),
+    ("REER",                "036Y002", "M", "0000100", "지수", "실질실효환율",             None),
 
     # ── 03. 물가·인플레 ────────────────────────────────────────────────────
-    ("CPI_YOY",             "901Y010", "M", "0",       "%",    "소비자물가 전년비"),
-    ("CORE_CPI_YOY",        "901Y010", "M", "11",      "%",    "근원CPI 전년비"),
-    ("PPI_YOY",             "901Y009", "M", "0",       "%",    "생산자물가 전년비"),
-    ("INFLATION_EXPECT",    "902Y016", "M", "0",       "%",    "기대인플레이션"),
-    ("IMPORT_PRICE_YOY",    "901Y011", "M", "0",       "%",    "수입물가 전년비"),
+    # 901Y010: 소비자물가지수(2020=100) → 지수에서 전년비 계산
+    ("CPI_YOY",             "901Y010", "M", "00",      "%",    "소비자물가 전년비",        "yoy_pct"),  # 0→00, YoY계산
+    ("CORE_CPI_YOY",        "901Y010", "M", "11",      "%",    "근원CPI 전년비",           "yoy_pct"),  # 근원물가지수 → YoY계산
+    # 901Y009: 생산자물가지수(2020=100) → 지수에서 전년비 계산
+    ("PPI_YOY",             "901Y009", "M", "0",       "%",    "생산자물가 전년비",        "yoy_pct"),  # YoY계산
+    # 511Y004: 소비자동향조사 → FMAB=기대인플레(다음1년 물가전망CSI)
+    ("INFLATION_EXPECT",    "511Y004", "M", "FMAB",    "CSI",  "물가전망CSI(기대인플레 대용)", None),  # 902Y016/KOR 불가 → 대용치
+    # 901Y013: 수입금액 지수 → 지수에서 전년비 계산
+    ("IMPORT_PRICE_YOY",    "901Y013", "M", "A",       "%",    "수입금액 전년비",          "yoy_pct"),  # 수입금액지수 YoY
 
     # ── 04. GDP·경기 ───────────────────────────────────────────────────────
-    ("GDP_GROWTH_QOQ",      "200Y104", "Q", "10101",   "%",    "실질GDP 전기비"),
-    ("GDP_GROWTH_YOY",      "200Y104", "Q", "10111",   "%",    "실질GDP 전년비"),
-    ("CLI_COINCIDENT",      "901Y067", "M", "I16A",    "지수", "경기동행지수 순환변동치"),
-    ("CLI_LEADING",         "901Y067", "M", "I16B",    "지수", "경기선행지수 순환변동치"),
-    ("BSI_ALL",             "512Y014", "M", "AA",      "BSI",  "기업경기실사지수 전산업"),
+    # 200Y104: 실질GDP 계절조정(1118=합계) → QoQ/YoY 계산
+    ("GDP_GROWTH_QOQ",      "200Y104", "Q", "1118",    "%",    "실질GDP 전기비",           "qoq_pct"),  # 10101 오류 → 1118+계산
+    ("GDP_GROWTH_YOY",      "200Y104", "Q", "1118",    "%",    "실질GDP 전년비",           "yoy_pct"),  # 10111 오류 → 1118+계산
+    # 901Y067: 경기지수 (I16D=동행순환변동치, I16E=선행순환변동치)
+    ("CLI_COINCIDENT",      "901Y067", "M", "I16D",    "지수", "경기동행지수 순환변동치",  None),  # I16A(잘못된값) → I16D
+    ("CLI_LEADING",         "901Y067", "M", "I16E",    "지수", "경기선행지수 순환변동치",  None),  # I16B → I16E
+    # 512Y014: 기업경기실사지수 (99988=전업종)
+    ("BSI_ALL",             "512Y014", "M", "99988",   "BSI",  "기업경기실사지수 전산업",  None),  # AA 오류 → 99988
 
     # ── 05. 노동시장 ───────────────────────────────────────────────────────
-    ("UNEMPLOYMENT_RATE",   "901Y027", "M", "I38A",    "%",    "실업률"),
-    ("EMPLOYMENT_CHANGE",   "901Y027", "M", "I38B",    "천명", "취업자수 전년비"),
-    ("LABOR_PARTICIPATION", "901Y027", "M", "I38H",    "%",    "경제활동참가율"),
-    ("EMPLOYMENT_RATE",     "901Y027", "M", "I38G",    "%",    "고용률"),
-    ("YOUTH_UNEMPLOYMENT",  "901Y027", "M", "I38C",    "%",    "청년실업률 (15-29세)"),
+    # 901Y027: 고용동향 (I38 계열 오류 → I61 계열 수정)
+    ("UNEMPLOYMENT_RATE",   "901Y027", "M", "I61BC",   "%",    "실업률",                  None),  # I38A → I61BC
+    ("EMPLOYMENT_CHANGE",   "901Y027", "M", "I61BA",   "천명", "취업자수 전년비",          "yoy_diff"),  # I38B → I61BA(수준→증감)
+    ("LABOR_PARTICIPATION", "901Y027", "M", "I61D",    "%",    "경제활동참가율",           None),  # I38H → I61D
+    ("EMPLOYMENT_RATE",     "901Y027", "M", "I61E",    "%",    "고용률",                  None),  # I38G → I61E
+    ("YOUTH_UNEMPLOYMENT",  "901Y027", "M", "I61BC",   "%",    "실업률(청년 대용)",        None),  # I38C 오류 → 전체 실업률 대용
 
     # ── 06. 통화·유동성 ────────────────────────────────────────────────────
-    ("M2_YOY",              "101Y004", "M", "BBHA00",  "%",    "M2(광의통화) 전년비"),
-    ("M1_YOY",              "101Y004", "M", "BBGA00",  "%",    "M1(협의통화) 전년비"),
-    ("BASE_MONEY",          "102Y004", "M", "BC",      "십억원","본원통화 잔액"),
-    ("HOUSEHOLD_CREDIT",    "104Y001", "Q", "BBL1A",   "십억원","가계신용 잔액"),
-    ("CORP_LOAN",           "104Y014", "M", "BCE",     "십억원","기업대출 잔액"),
+    # 101Y004: M2 잔액(BBHA00) → YoY 계산; 데이터 지연 시 N/A
+    ("M2_YOY",              "101Y004", "M", "BBHA00",  "%",    "M2 전년비",               "yoy_pct"),
+    ("M1_YOY",              "101Y004", "M", "BBGA00",  "%",    "M1 전년비",               "yoy_pct"),
+    # 102Y004: 본원통화 잔액 (ABA104=본원통화)
+    ("BASE_MONEY",          "102Y004", "M", "ABA104",  "십억원","본원통화 잔액",           None),  # BC 오류 → ABA104
+    ("HOUSEHOLD_CREDIT",    "104Y001", "Q", "BBL1A",   "십억원","가계신용 잔액",           None),  # 항목 조회 불가, 유지
+    # 104Y014: 기업대출 (BCA8=합계)
+    ("CORP_LOAN",           "104Y014", "M", "BCA8",    "십억원","기업대출 잔액",           None),  # BCE 오류 → BCA8(합계)
 
     # ── 07. 주택시장 ───────────────────────────────────────────────────────
-    ("HOUSE_PRICE_BUY",     "901Y092", "M", "P63AA",   "지수", "주택매매가격지수"),
-    ("HOUSE_PRICE_RENT",    "901Y092", "M", "P63BA",   "지수", "주택전세가격지수"),
-    ("APT_PRICE_BUY",       "901Y092", "M", "P63AD",   "지수", "아파트매매가격지수"),
-    ("HOUSING_START",       "901Y066", "M", "I16Y",    "호",   "주택착공 건수"),
+    # 901Y092: 부동산거래 금액(매매/임대) — 가격지수 아님, 금액 데이터
+    ("HOUSE_PRICE_BUY",     "901Y092", "M", "E100",    "십억원","주택매매금액 합계",       None),  # P63AA 오류 → E100(금액)
+    ("HOUSE_PRICE_RENT",    "901Y092", "M", "I100",    "십억원","주택임대금액 합계",       None),  # P63BA 오류 → I100(금액)
+    ("APT_PRICE_BUY",       "901Y092", "M", "E101",    "십억원","아파트매매금액",          None),  # P63AD 오류 → E101(금액)
+    # 901Y066: 건설경기지수 (I15A=주택착공지수)
+    ("HOUSING_START",       "901Y066", "M", "I15A",    "지수", "주택착공지수",            None),  # I16Y 오류 → I15A
 
     # ── 08. 수출입·무역 ────────────────────────────────────────────────────
-    ("EXPORT_YOY",          "403Y003", "M", "I38301",  "%",    "수출 전년비"),
-    ("IMPORT_YOY",          "403Y003", "M", "I38302",  "%",    "수입 전년비"),
-    ("TRADE_BALANCE",       "403Y003", "M", "I38303",  "백만달러","무역수지"),
-    ("CURRENT_ACCOUNT",     "403Y001", "M", "I38101",  "백만달러","경상수지"),
-    ("EXPORT_VOLUME_YOY",   "403Y003", "M", "I38304",  "%",    "수출물량지수 전년비"),
+    # 403Y003: 수출물량지수(*AA=총지수) → YoY 계산
+    ("EXPORT_YOY",          "403Y003", "M", "*AA",     "%",    "수출물량 전년비",          "yoy_pct"),  # I38301 오류 → *AA+YoY
+    # 403Y001: 수입물량지수(*AA=총지수) → YoY 계산
+    ("IMPORT_YOY",          "403Y001", "M", "*AA",     "%",    "수입물량 전년비",          "yoy_pct"),  # I38302 오류 → *AA+YoY
+    ("TRADE_BALANCE",       "403Y003", "M", "I38303",  "백만달러","무역수지",              None),  # 확인 필요
+    ("CURRENT_ACCOUNT",     "403Y001", "M", "I38101",  "백만달러","경상수지",              None),  # 확인 필요
+    ("EXPORT_VOLUME_YOY",   "403Y003", "M", "*AA",     "%",    "수출물량지수 전년비",      "yoy_pct"),  # I38304 → *AA+YoY
 
     # ── 09. 소비·산업 ─────────────────────────────────────────────────────
-    ("RETAIL_SALES_YOY",    "402Y015", "M", "FM2A",    "%",    "소매판매 전년비"),
-    ("INDPRO_YOY",          "402Y012", "M", "BSBI",    "%",    "광공업생산 전년비"),
-    ("CAPEX_YOY",           "402Y012", "M", "BSCI",    "%",    "설비투자 전년비"),
-    ("CONSTRUCTION_YOY",    "402Y012", "M", "BSDI",    "%",    "건설기성 전년비"),
-    ("CSI",                 "511Y004", "M", "FAA",     "지수", "소비자심리지수(CSI)"),
+    # 402Y015: 소매판매지수(*AA=총지수) → YoY 계산
+    ("RETAIL_SALES_YOY",    "402Y015", "M", "*AA",     "%",    "소매판매 전년비",          "yoy_pct"),  # FM2A 오류 → *AA+YoY
+    # 402Y014: 산업생산지수(*AA=총지수) → YoY 계산 (402Y012 항목 없음)
+    ("INDPRO_YOY",          "402Y014", "M", "*AA",     "%",    "광공업생산 전년비",        "yoy_pct"),  # 402Y012/BSBI 오류 → 402Y014/*AA
+    ("CAPEX_YOY",           "402Y012", "M", "BSCI",    "%",    "설비투자 전년비",          None),  # 항목 미확인
+    ("CONSTRUCTION_YOY",    "402Y012", "M", "BSDI",    "%",    "건설기성 전년비",          None),  # 항목 미확인
+    # 511Y004: 소비자동향CSI (FMAA=소비자동향CSI, FAA 오류)
+    ("CSI",                 "511Y004", "M", "FMAA",    "지수", "소비자동향CSI",           None),  # FAA 오류 → FMAA
 
     # ── 10. 금융시장 ───────────────────────────────────────────────────────
-    ("KOSPI",               "802Y001", "M", "0001",    "pt",   "KOSPI 지수"),
-    ("KOSDAQ",              "802Y001", "M", "0002",    "pt",   "KOSDAQ 지수"),
-    ("FOREIGN_NET_BUY",     "802Y004", "M", "7",       "십억원","외국인 주식 순매수"),
-    ("CD_BOK_SPREAD",       "721Y001", "M", "SPREAD",  "%",    "CD-기준금리 스프레드 (파생)"),
-    ("CREDIT_SPREAD",       "721Y001", "M", "CSPREAD", "%",    "회사채BBB-국채3Y 스프레드 (파생)"),
-    ("DSR_HOUSEHOLD",       "104Y001", "Q", "DSR",     "%",    "가계부채 DSR (파생)"),
+    # 802Y001: 주가지수 (월별 없음, 일별로 최근값 사용)
+    ("KOSPI",               "802Y001", "D", "0001000", "pt",   "KOSPI 지수",             None),  # 0001 → 0001000, M→D
+    ("KOSDAQ",              "802Y001", "D", "0089000", "pt",   "KOSDAQ 지수",            None),  # 0002 → 0089000, M→D
+    ("FOREIGN_NET_BUY",     "802Y004", "M", "7",       "십억원","외국인 주식 순매수",     None),  # 항목 조회 불가
+    ("CD_BOK_SPREAD",       "721Y001", "M", "SPREAD",  "%",    "CD-기준금리 스프레드 (파생)", None),
+    ("CREDIT_SPREAD",       "721Y001", "M", "CSPREAD", "%",    "회사채BBB-국채3Y 스프레드 (파생)", None),
+    ("DSR_HOUSEHOLD",       "104Y001", "Q", "DSR",     "%",    "가계부채 DSR (파생)",     None),
 ]
 
 # ---------------------------------------------------------------------------
 # ECOS API 호출
 # ---------------------------------------------------------------------------
 def _date_range(period: str) -> tuple[str, str]:
-    """조회 기간 생성: 현재 기준 충분히 긴 범위 반환."""
+    """조회 기간 생성. 안전한 최종일을 적용하여 'future date' 오류 방지."""
     today = date.today()
+    # 안전 종료일: 일별=어제, 월별=2달전, 분기/연=현재
+    safe_daily_end = today - timedelta(days=1)
+
     if period == "D":
-        start = date(today.year - 1, 1, 1).strftime("%Y%m%d")
-        end = today.strftime("%Y%m%d")
+        start = date(today.year - 2, 1, 1).strftime("%Y%m%d")
+        end   = safe_daily_end.strftime("%Y%m%d")
     elif period == "M":
-        start = date(today.year - 3, 1, 1).strftime("%Y%m")
-        end = today.strftime("%Y%m")
+        start = date(today.year - 4, 1, 1).strftime("%Y%m")  # 4년 전 (YoY 계산용)
+        end   = today.strftime("%Y%m")
     elif period == "Q":
-        start = f"{today.year - 5}Q1"
-        end = f"{today.year}Q4"
+        start = f"{today.year - 6}Q1"
+        end   = f"{today.year}Q4"
     else:  # A
         start = str(today.year - 10)
-        end = str(today.year)
+        end   = str(today.year)
     return start, end
 
 
 def fetch_series(stat_code: str, period: str, item_code: str) -> list[dict]:
-    """ECOS StatisticSearch 호출 → row 리스트 반환."""
+    """ECOS StatisticSearch 호출 → row 리스트 반환. future-date 오류 시 재시도."""
     start, end = _date_range(period)
     item_part = f"/{item_code}" if item_code else ""
-    url = (
-        f"{BASE_URL}/{API_KEY}/json/kr/1/100"
-        f"/{stat_code}/{period}/{start}/{end}{item_part}"
-    )
-    try:
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
-        body = resp.json()
-        if "StatisticSearch" not in body:
+
+    def _call(s, e):
+        url = (
+            f"{BASE_URL}/{API_KEY}/json/kr/1/200"
+            f"/{stat_code}/{period}/{s}/{e}{item_part}"
+        )
+        try:
+            resp = requests.get(url, timeout=15)
+            resp.raise_for_status()
+            body = resp.json()
+            # future-date 오류 감지
+            if "RESULT" in body:
+                msg = body["RESULT"].get("MESSAGE", "")
+                if "미래" in msg or "future" in msg.lower():
+                    return None  # 재시도 신호
+            if "StatisticSearch" not in body:
+                return []
+            return body["StatisticSearch"].get("row", [])
+        except Exception as exc:
+            print(f"  [WARN] {stat_code}/{item_code}: {exc}")
             return []
-        return body["StatisticSearch"].get("row", [])
-    except Exception as exc:
-        print(f"  [WARN] {stat_code}/{item_code}: {exc}")
-        return []
+
+    rows = _call(start, end)
+    if rows is None:
+        # 종료일을 6개월 앞으로 당겨 재시도
+        _today = date.today()
+        if period == "M":
+            m = _today.month - 6
+            y = _today.year if m > 0 else _today.year - 1
+            m = m if m > 0 else m + 12
+            end_fallback = f"{y}{m:02d}"
+        elif period == "D":
+            end_fallback = (_today - timedelta(days=180)).strftime("%Y%m%d")
+        else:
+            end_fallback = end
+        rows = _call(start, end_fallback) or []
+
+    return rows
 
 
 def latest_value(rows: list[dict]) -> tuple[float | None, str]:
@@ -154,18 +208,87 @@ def latest_value(rows: list[dict]) -> tuple[float | None, str]:
     valid = [r for r in rows if r.get("DATA_VALUE") not in (None, "", " ", "-")]
     if not valid:
         return None, "N/A"
+    valid.sort(key=lambda r: r.get("TIME", ""))
     latest = valid[-1]
     return float(latest["DATA_VALUE"]), latest.get("TIME", "N/A")
+
+
+def yoy_pct(rows: list[dict]) -> tuple[float | None, str]:
+    """지수/수준 시계열에서 전년동기비(%) 계산."""
+    valid = {}
+    for r in rows:
+        v = r.get("DATA_VALUE")
+        if v not in (None, "", " ", "-"):
+            valid[r["TIME"]] = float(v)
+    if not valid:
+        return None, "N/A"
+
+    times = sorted(valid.keys(), reverse=True)
+    t, v = times[0], valid[times[0]]
+
+    # 전년 동기 찾기
+    if len(t) == 6 and t.isdigit():        # YYYYMM
+        prev_t = f"{int(t[:4]) - 1}{t[4:]}"
+    elif len(t) == 6 and "Q" in t:         # YYYYQN
+        prev_t = f"{int(t[:4]) - 1}{t[4:]}"
+    elif len(t) == 8 and t.isdigit():      # YYYYMMDD
+        from datetime import datetime as dt
+        d = dt.strptime(t, "%Y%m%d") - timedelta(days=365)
+        prev_t = d.strftime("%Y%m%d")
+    else:
+        return None, "N/A"
+
+    if prev_t in valid and valid[prev_t] != 0:
+        return round((v / valid[prev_t] - 1) * 100, 2), t
+    return None, "N/A"
+
+
+def yoy_diff(rows: list[dict]) -> tuple[float | None, str]:
+    """수준 시계열에서 전년동기 절대 증감 계산 (예: 취업자수 증감)."""
+    valid = {}
+    for r in rows:
+        v = r.get("DATA_VALUE")
+        if v not in (None, "", " ", "-"):
+            valid[r["TIME"]] = float(v)
+    if not valid:
+        return None, "N/A"
+
+    times = sorted(valid.keys(), reverse=True)
+    t, v = times[0], valid[times[0]]
+
+    if len(t) == 6 and t.isdigit():
+        prev_t = f"{int(t[:4]) - 1}{t[4:]}"
+    elif "Q" in t:
+        prev_t = f"{int(t[:4]) - 1}{t[4:]}"
+    else:
+        return None, "N/A"
+
+    if prev_t in valid:
+        return round(v - valid[prev_t], 1), t
+    return None, "N/A"
+
+
+def qoq_pct(rows: list[dict]) -> tuple[float | None, str]:
+    """분기 수준 시계열에서 전분기비(%) 계산."""
+    valid = sorted(
+        [(r["TIME"], float(r["DATA_VALUE"]))
+         for r in rows
+         if r.get("DATA_VALUE") not in (None, "", " ", "-")],
+        key=lambda x: x[0]
+    )
+    if len(valid) < 2:
+        return None, "N/A"
+    t, v = valid[-1]
+    _, prev_v = valid[-2]
+    if prev_v and prev_v != 0:
+        return round((v / prev_v - 1) * 100, 2), t
+    return None, "N/A"
 
 
 # ---------------------------------------------------------------------------
 # 파생 지표 계산 (스프레드류)
 # ---------------------------------------------------------------------------
-def _compute_derived(records: dict[str, dict]) -> dict[str, dict]:
-    """
-    레지스트리 내 파생 코드(SPREAD, CSPREAD, DSR)를
-    이미 수집된 데이터로부터 계산하여 records를 업데이트.
-    """
+def _compute_derived(records: dict) -> dict:
     def safe_diff(a_key: str, b_key: str) -> float | None:
         av = records.get(a_key, {}).get("value")
         bv = records.get(b_key, {}).get("value")
@@ -185,10 +308,10 @@ def _compute_derived(records: dict[str, dict]) -> dict[str, dict]:
         records["CREDIT_SPREAD"]["value"] = cspread
         records["CREDIT_SPREAD"]["date"] = records.get("CORP_BOND_BBB_MINUS", {}).get("date", "N/A")
 
-    # DSR 대용치: 가계신용 잔액 / 명목 GDP 비율(%) — 실제 DSR 데이터가 ECOS에 없을 경우
+    # DSR 대용치: 가계신용 잔액 유지
     hh = records.get("HOUSEHOLD_CREDIT", {}).get("value")
     if "DSR_HOUSEHOLD" in records:
-        records["DSR_HOUSEHOLD"]["value"] = hh  # 원 잔액 유지 (신호 스크립트에서 활용)
+        records["DSR_HOUSEHOLD"]["value"] = hh
         records["DSR_HOUSEHOLD"]["date"] = records.get("HOUSEHOLD_CREDIT", {}).get("date", "N/A")
 
     return records
@@ -197,20 +320,35 @@ def _compute_derived(records: dict[str, dict]) -> dict[str, dict]:
 # ---------------------------------------------------------------------------
 # 메인 수집 루프
 # ---------------------------------------------------------------------------
+CALC_FUNCS = {
+    "yoy_pct":  yoy_pct,
+    "yoy_diff": yoy_diff,
+    "qoq_pct":  qoq_pct,
+}
+
 def collect_all() -> pd.DataFrame:
     records: dict[str, dict] = {}
     total = len(SERIES)
 
-    for i, (key, stat_code, period, item_code, unit, label) in enumerate(SERIES, 1):
+    for i, entry in enumerate(SERIES, 1):
+        key, stat_code, period, item_code, unit, label = entry[:6]
+        calc_type = entry[6] if len(entry) > 6 else None
+
         is_derived = item_code in ("SPREAD", "CSPREAD", "DSR")
         if is_derived:
-            records[key] = {"label": label, "value": None, "date": "N/A", "unit": unit,
-                            "stat_code": stat_code, "period": period}
+            records[key] = {"label": label, "value": None, "date": "N/A",
+                            "unit": unit, "stat_code": stat_code, "period": period}
             continue
 
-        print(f"  [{i:02d}/{total}] {key:<25} {stat_code}/{item_code}")
+        print(f"  [{i:02d}/{total}] {key:<25} {stat_code}/{item_code}"
+              + (f" [{calc_type}]" if calc_type else ""))
         rows = fetch_series(stat_code, period, item_code)
-        value, obs_date = latest_value(rows)
+
+        if calc_type and calc_type in CALC_FUNCS:
+            value, obs_date = CALC_FUNCS[calc_type](rows)
+        else:
+            value, obs_date = latest_value(rows)
+
         records[key] = {
             "label": label,
             "value": value,
@@ -306,8 +444,7 @@ def main() -> None:
     if API_KEY == "sample":
         print("[WARN] ECOS_API_KEY 환경변수가 설정되지 않았습니다.")
         print("       .env 파일에 ECOS_API_KEY=<your_key> 를 추가하거나")
-        print("       환경변수로 설정해주세요.")
-        print("       sample 키로는 일부 지표만 조회 가능합니다.\n")
+        print("       환경변수로 설정해주세요.\n")
 
     df = collect_all()
 
