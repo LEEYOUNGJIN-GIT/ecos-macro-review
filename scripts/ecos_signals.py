@@ -1,6 +1,6 @@
 """
 scripts/ecos_signals.py
-data/ecos_latest.csv 를 읽어 12개 파생 신호와 종합 위험도를 계산하고
+data/ecos_latest.csv 를 읽어 10개 파생 신호와 종합 위험도를 계산하고
 data/ecos_signals.md 를 생성합니다.
 """
 

@@ -1,6 +1,6 @@
 """
 ecos_fetch.py
-한국은행 ECOS API에서 37개 거시경제 지표를 수집하고
+한국은행 ECOS API에서 33개 거시경제 지표를 수집하고
 data/ecos_latest.csv 및 data/ecos_latest.md 를 생성합니다.
 """
 
@@ -96,6 +96,9 @@ SERIES = [
     # 403Y003: 수출물량지수(*AA=총지수) → YoY 계산
     ("EXPORT_YOY",          "403Y003", "M", "*AA",     "%",    "수출물량 전년비",          "yoy_pct"),
     # 403Y001: 수입물량지수(*AA=총지수) → YoY 계산
+    # ※ 주의: 2025-2026년 관세 충격·기저효과로 YoY 50%+ 극단값 발생 가능.
+    #   수치가 경제적으로 과도해 보이더라도 API 원본 그대로 표시 (실제 데이터 가능성).
+    #   item_code *AA 오류 여부는 ECOS 통계표 403Y001 항목 코드 재확인 필요.
     ("IMPORT_YOY",          "403Y001", "M", "*AA",     "%",    "수입물량 전년비",          "yoy_pct"),
 
     # ── 09. 소비·산업 ─────────────────────────────────────────────────────
@@ -105,9 +108,12 @@ SERIES = [
     ("CSI",                 "511Y004", "M", "FMAA",    "지수", "소비자동향CSI",           None),
 
     # ── 10. 금융시장 ───────────────────────────────────────────────────────
-    # 802Y001: 주가지수 — 일별(D) 요청 시 ECOS 업데이트 지연(~7개월)이 확인되어 월별(M) 사용
-    ("KOSPI",               "802Y001", "M", "0001000", "pt",   "KOSPI 지수(월평균)",     None),
-    ("KOSDAQ",              "802Y001", "M", "0089000", "pt",   "KOSDAQ 지수(월평균)",    None),
+    # 802Y001: 주가지수 일별 시리즈.
+    # ECOS는 시장 데이터를 약 6-7개월 지연 게재하는 구조적 특성 있음.
+    # 월별(M) 요청 시 802Y001 이 빈 결과를 반환하는 것이 확인되어 일별(D)로 복원.
+    # staleness 검사는 _check_data_quality()의 STALENESS_EXEMPT 로 면제 처리.
+    ("KOSPI",               "802Y001", "D", "0001000", "pt",   "KOSPI 지수",             None),
+    ("KOSDAQ",              "802Y001", "D", "0089000", "pt",   "KOSDAQ 지수",            None),
     ("CD_BOK_SPREAD",       "721Y001", "M", "SPREAD",  "%",    "CD-기준금리 스프레드 (파생)", None),
     ("CREDIT_SPREAD",       "721Y001", "M", "CSPREAD", "%",    "회사채BBB-국채3Y 스프레드 (파생)", None),
 ]
@@ -299,16 +305,23 @@ def _check_data_quality(records: dict) -> dict:
     1) 신선도 (Staleness): 월별 6개월·일별 180일 이상 지연 시 None
        - 511Y004/FMAA (CSI) 등 ECOS에서 일부 시리즈가 수년 전 데이터만 반환하는
          사례가 확인됨. 해당 데이터가 성장점수·신호에 투입되면 오류 분석 유발.
+       - STALENESS_EXEMPT: ECOS 시장 데이터(주가지수 등)는 구조적으로 ~6-7개월
+         지연 게재되므로 신선도 검사에서 면제. 실제 데이터이며 최신 시리즈임.
     2) 소매판매 이상치: 402Y015/*AA 가 광공업생산지수와 동일값을 반환하는
        item_code 오류가 확인됨. YoY |25%| 초과 시 None.
     """
     from datetime import date as _date
     today = _date.today()
 
+    # ECOS 시장 데이터: 구조적 지연(~7개월)이 정상 특성 → 신선도 검사 면제
+    STALENESS_EXEMPT = {"KOSPI", "KOSDAQ"}
+
     # ── 1. 신선도 검사 ────────────────────────────────────────────────────
     for key, meta in records.items():
         if meta.get("value") is None:
             continue
+        if key in STALENESS_EXEMPT:
+            continue  # 주가지수 등 구조적 지연 허용 시리즈 → 검사 건너뜀
         period = meta.get("period", "M")
         obs_date = meta.get("date", "N/A")
         try:
@@ -445,7 +458,9 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
             m = lookup[k]
             val = m["value"]
             val_str = f"{val:,.4f}".rstrip("0").rstrip(".") if val is not None else "N/A"
-            lines.append(f"| {k} | {m['label']} | {val_str} | {m['unit']} | {m['date']} |")
+            # 값이 None(품질검사 탈락 등)이면 기준일도 N/A로 표시 (오해 방지)
+            date_str = m["date"] if val is not None else "N/A"
+            lines.append(f"| {k} | {m['label']} | {val_str} | {m['unit']} | {date_str} |")
         lines.append("")
 
     path = DATA_DIR / "ecos_latest.md"
