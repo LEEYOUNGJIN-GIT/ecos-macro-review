@@ -37,7 +37,10 @@ def load_data() -> dict[str, float | None]:
     if not INPUT_CSV.exists():
         sys.exit(f"[ERROR] {INPUT_CSV} 파일이 없습니다. ecos_fetch.py를 먼저 실행하세요.")
     df = pd.read_csv(INPUT_CSV, encoding="utf-8-sig")
-    return dict(zip(df["series_id"], pd.to_numeric(df["value"], errors="coerce")))
+    values = dict(zip(df["series_id"], pd.to_numeric(df["value"], errors="coerce")))
+    for _, row in df.iterrows():
+        values[f"{row['series_id']}__date"] = str(row.get("date", "N/A"))
+    return values
 
 
 def g(data: dict, key: str) -> float | None:
@@ -147,10 +150,21 @@ def compute_inflation_score(data: dict) -> dict:
     s, w = score_component(ppi, -3.0, 8.0, weight=1.5)
     components.append(("PPI_YOY", "생산자물가 전년비", ppi, "%", s, w))
 
-    # 4. 기대인플레이션 (weight 1.5)
+    # 4. 물가전망CSI (기대인플레 대용, weight 1.0 — 프록시·데이터지연 위험으로 가중치 축소)
+    # CSI 100 = 중립, 80~140 스케일. 직접 인플레율(%)이 아님. 12개월 이상 지연 시 제외.
+    from datetime import date as _date
     exp = g(data, "INFLATION_EXPECT")
-    s, w = score_component(exp, 1.0, 4.0, weight=1.5)
-    components.append(("INFLATION_EXPECT", "기대인플레이션", exp, "%", s, w))
+    exp_date = data.get("INFLATION_EXPECT__date", "N/A")
+    try:
+        if len(exp_date) == 6 and exp_date.isdigit():
+            obs = _date(int(exp_date[:4]), int(exp_date[4:6]), 1)
+            if (_date.today() - obs).days > 365:
+                print(f"  [WARN] INFLATION_EXPECT 데이터 지연({exp_date}) → 인플레 점수 제외")
+                exp = None
+    except Exception:
+        pass
+    s, w = score_component(exp, 80.0, 140.0, weight=1.0)
+    components.append(("INFLATION_EXPECT", "물가전망CSI(기대인플레 대용)", exp, "CSI", s, w))
 
     # 5. 수입물가 YoY (weight 1.0)
     imp = g(data, "IMPORT_PRICE_YOY")

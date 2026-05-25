@@ -338,6 +338,14 @@ def collect_all() -> pd.DataFrame:
 
     records = _compute_derived(records)
 
+    # ── 동일값 오류 감지 ────────────────────────────────────────────────────
+    retail_val = records.get("RETAIL_SALES_YOY", {}).get("value")
+    indpro_val = records.get("INDPRO_YOY", {}).get("value")
+    if retail_val is not None and indpro_val is not None and retail_val == indpro_val:
+        print(f"  [WARN] RETAIL_SALES_YOY == INDPRO_YOY ({retail_val}): "
+              f"stat_code 오류 의심 → INDPRO_YOY 제외")
+        records["INDPRO_YOY"]["value"] = None
+
     rows_out = []
     for key, meta in records.items():
         rows_out.append({

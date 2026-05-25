@@ -20,11 +20,14 @@ OUTPUT_MD = DATA_DIR / "ecos_signals.md"
 # 유틸
 # ---------------------------------------------------------------------------
 def load_data() -> dict[str, float | None]:
-    """CSV → {series_id: value} 딕셔너리 반환."""
+    """CSV → {series_id: value, series_id+'__date': date_str} 딕셔너리 반환."""
     if not INPUT_CSV.exists():
         sys.exit(f"[ERROR] {INPUT_CSV} 파일이 없습니다. ecos_fetch.py를 먼저 실행하세요.")
     df = pd.read_csv(INPUT_CSV, encoding="utf-8-sig")
-    return dict(zip(df["series_id"], pd.to_numeric(df["value"], errors="coerce")))
+    values = dict(zip(df["series_id"], pd.to_numeric(df["value"], errors="coerce")))
+    for _, row in df.iterrows():
+        values[f"{row['series_id']}__date"] = str(row.get("date", "N/A"))
+    return values
 
 
 def g(data: dict, key: str) -> float | None:
@@ -140,18 +143,41 @@ def sig_03_inflation_regime(d: dict) -> dict:
 
 
 def sig_04_inflation_expectation(d: dict) -> dict:
-    """4. 기대인플레 디앵커링"""
+    """4. 기대인플레 디앵커링 (물가전망CSI 기준)
+
+    INFLATION_EXPECT는 소비자동향조사 물가전망CSI(FMAB)를 대용치로 사용.
+    CSI 100 = 중립(상승/하락 기대 동일), >100 = 물가상승 기대 우세.
+    직접 인플레율(%)이 아니므로 80~140 CSI 스케일 적용.
+    데이터가 12개월 이상 지연된 경우 score = None 처리.
+    """
+    from datetime import date as _date
     exp = g(d, "INFLATION_EXPECT")
-    # ≥ 3.0% → 디앵커링 경보
-    if exp is None:
-        score = None
-    else:
-        score = round(max(0.0, min(10.0, (exp - 1.0) / 0.3)), 2)
+    exp_date = d.get("INFLATION_EXPECT__date", "N/A")
+
+    stale = False
+    try:
+        if len(exp_date) == 6 and exp_date.isdigit():
+            obs = _date(int(exp_date[:4]), int(exp_date[4:6]), 1)
+            stale = (_date.today() - obs).days > 365
+    except Exception:
+        pass
+
+    if exp is None or stale:
+        reason = f"데이터 {exp_date} — 12개월 이상 지연" if stale else "결측"
+        return {
+            "id": "SIG04", "name": "기대인플레 디앵커링",
+            "value": exp, "unit": "CSI",
+            "detail": f"물가전망CSI: {fmt(exp)} ({reason}) → 신호 제외",
+            "threshold": "CSI ≥115 인플레 기대 상승 / ≥130 디앵커링 경보",
+            "score": None,
+        }
+
+    score = score_0_10(exp, 80.0, 140.0)
     return {
         "id": "SIG04", "name": "기대인플레 디앵커링",
-        "value": exp, "unit": "%",
-        "detail": f"기대인플레이션: {fmt(exp)}%",
-        "threshold": "≥3.0 디앵커링 경보 / ≤2.0 안정",
+        "value": exp, "unit": "CSI",
+        "detail": f"물가전망CSI: {fmt(exp)} (100=중립, >115 인플레기대, <85 디플레기대) | 기준일: {exp_date}",
+        "threshold": "CSI ≥115 인플레 기대 상승 / ≥130 디앵커링 경보",
         "score": score,
     }
 
@@ -169,7 +195,11 @@ def sig_05_labor_market(d: dict) -> dict:
     # 고용률: 63% 이상 → 0점, 58% 이하 → 10점
     s_erate = score_0_10(emp_rate, 58.0, 63.0, invert=True) if emp_rate is not None else None
     # 청년실업률: 5% → 0점, 12% → 10점
-    s_youth = score_0_10(youth_unemp, 5.0, 12.0) if youth_unemp is not None else None
+    # YOUTH_UNEMPLOYMENT가 전체 실업률과 동일 시리즈(I61BC 대용)인 경우 중복 계산 방지
+    if youth_unemp is not None and unemp is not None and youth_unemp == unemp:
+        s_youth = None
+    else:
+        s_youth = score_0_10(youth_unemp, 5.0, 12.0) if youth_unemp is not None else None
     vals = [v for v in [s_unemp, s_emp, s_erate, s_youth] if v is not None]
     score = round(float(np.mean(vals)), 2) if vals else None
     return {
