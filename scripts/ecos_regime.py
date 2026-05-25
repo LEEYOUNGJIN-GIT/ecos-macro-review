@@ -88,37 +88,32 @@ def compute_growth_score(data: dict) -> dict:
     s, w = score_component(gdp, -3.0, 6.0, weight=2.0)
     components.append(("GDP_GROWTH_YOY", "실질GDP 전년비", gdp, "%", s, w))
 
-    # 2. 광공업생산 YoY (weight 1.5)
-    ip = g(data, "INDPRO_YOY")
-    s, w = score_component(ip, -8.0, 8.0, weight=1.5)
-    components.append(("INDPRO_YOY", "광공업생산 전년비", ip, "%", s, w))
-
-    # 3. 소매판매 YoY (weight 1.5)
+    # 2. 소매판매 YoY (weight 1.5)
     retail = g(data, "RETAIL_SALES_YOY")
     s, w = score_component(retail, -5.0, 8.0, weight=1.5)
     components.append(("RETAIL_SALES_YOY", "소매판매 전년비", retail, "%", s, w))
 
-    # 4. 고용률 (weight 1.0)
+    # 3. 고용률 (weight 1.0)
     emp = g(data, "EMPLOYMENT_RATE")
     s, w = score_component(emp, 58.0, 65.0, weight=1.0)
     components.append(("EMPLOYMENT_RATE", "고용률", emp, "%", s, w))
 
-    # 5. 경기동행지수 순환변동치 (weight 1.5)
+    # 4. 경기동행지수 순환변동치 (weight 1.5)
     coin = g(data, "CLI_COINCIDENT")
     s, w = score_component(coin, 94.0, 104.0, weight=1.5)
     components.append(("CLI_COINCIDENT", "경기동행지수순환변동", coin, "지수", s, w))
 
-    # 6. 경기선행지수 순환변동치 (weight 1.5)
+    # 5. 경기선행지수 순환변동치 (weight 1.5)
     lead = g(data, "CLI_LEADING")
     s, w = score_component(lead, 94.0, 104.0, weight=1.5)
     components.append(("CLI_LEADING", "경기선행지수순환변동", lead, "지수", s, w))
 
-    # 7. 소비자심리지수 (weight 1.0)
+    # 6. 소비자심리지수 (weight 1.0)
     csi = g(data, "CSI")
     s, w = score_component(csi, 70.0, 115.0, weight=1.0)
     components.append(("CSI", "소비자심리지수", csi, "지수", s, w))
 
-    # 8. KOSPI (weight 1.0)
+    # 7. KOSPI (weight 1.0)
     kospi = g(data, "KOSPI")
     s, w = score_component(kospi, 1800.0, 3200.0, weight=1.0)
     components.append(("KOSPI", "KOSPI 지수", kospi, "pt", s, w))
@@ -150,28 +145,12 @@ def compute_inflation_score(data: dict) -> dict:
     s, w = score_component(ppi, -3.0, 8.0, weight=1.5)
     components.append(("PPI_YOY", "생산자물가 전년비", ppi, "%", s, w))
 
-    # 4. 물가전망CSI (기대인플레 대용, weight 1.0 — 프록시·데이터지연 위험으로 가중치 축소)
-    # CSI 100 = 중립, 80~140 스케일. 직접 인플레율(%)이 아님. 12개월 이상 지연 시 제외.
-    from datetime import date as _date
-    exp = g(data, "INFLATION_EXPECT")
-    exp_date = data.get("INFLATION_EXPECT__date", "N/A")
-    try:
-        if len(exp_date) == 6 and exp_date.isdigit():
-            obs = _date(int(exp_date[:4]), int(exp_date[4:6]), 1)
-            if (_date.today() - obs).days > 365:
-                print(f"  [WARN] INFLATION_EXPECT 데이터 지연({exp_date}) → 인플레 점수 제외")
-                exp = None
-    except Exception:
-        pass
-    s, w = score_component(exp, 80.0, 140.0, weight=1.0)
-    components.append(("INFLATION_EXPECT", "물가전망CSI(기대인플레 대용)", exp, "CSI", s, w))
-
-    # 5. 수입물가 YoY (weight 1.0)
+    # 4. 수입물가 YoY (weight 1.0)
     imp = g(data, "IMPORT_PRICE_YOY")
     s, w = score_component(imp, -10.0, 15.0, weight=1.0)
     components.append(("IMPORT_PRICE_YOY", "수입물가 전년비", imp, "%", s, w))
 
-    # 6. 임금(취업자 증감으로 대용) (weight 1.0)
+    # 5. 임금(취업자 증감으로 대용) (weight 1.0)
     emp_chg = g(data, "EMPLOYMENT_CHANGE")
     s, w = score_component(emp_chg, -100.0, 500.0, weight=1.0)
     components.append(("EMPLOYMENT_CHANGE", "취업자수 증감(임금압력 대용)", emp_chg, "천명", s, w))

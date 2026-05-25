@@ -58,8 +58,6 @@ SERIES = [
     ("CORE_CPI_YOY",        "901Y010", "M", "11",      "%",    "근원CPI 전년비",           "yoy_pct"),  # 근원물가지수 → YoY계산
     # 901Y009: 생산자물가지수(2020=100) → 지수에서 전년비 계산
     ("PPI_YOY",             "901Y009", "M", "0",       "%",    "생산자물가 전년비",        "yoy_pct"),  # YoY계산
-    # 511Y004: 소비자동향조사 → FMAB=기대인플레(다음1년 물가전망CSI)
-    ("INFLATION_EXPECT",    "511Y004", "M", "FMAB",    "CSI",  "물가전망CSI(기대인플레 대용)", None),  # 902Y016/KOR 불가 → 대용치
     # 901Y013: 수입금액 지수 → 지수에서 전년비 계산
     ("IMPORT_PRICE_YOY",    "901Y013", "M", "A",       "%",    "수입금액 전년비",          "yoy_pct"),  # 수입금액지수 YoY
 
@@ -79,7 +77,6 @@ SERIES = [
     ("EMPLOYMENT_CHANGE",   "901Y027", "M", "I61BA",   "천명", "취업자수 전년비",          "yoy_diff"),  # I38B → I61BA(수준→증감)
     ("LABOR_PARTICIPATION", "901Y027", "M", "I61D",    "%",    "경제활동참가율",           None),  # I38H → I61D
     ("EMPLOYMENT_RATE",     "901Y027", "M", "I61E",    "%",    "고용률",                  None),  # I38G → I61E
-    ("YOUTH_UNEMPLOYMENT",  "901Y027", "M", "I61BC",   "%",    "실업률(청년 대용)",        None),  # I38C 오류 → 전체 실업률 대용
 
     # ── 06. 통화·유동성 ────────────────────────────────────────────────────
     # 102Y004: 본원통화 잔액 (ABA104=본원통화)
@@ -100,13 +97,10 @@ SERIES = [
     ("EXPORT_YOY",          "403Y003", "M", "*AA",     "%",    "수출물량 전년비",          "yoy_pct"),
     # 403Y001: 수입물량지수(*AA=총지수) → YoY 계산
     ("IMPORT_YOY",          "403Y001", "M", "*AA",     "%",    "수입물량 전년비",          "yoy_pct"),
-    ("EXPORT_VOLUME_YOY",   "403Y003", "M", "*AA",     "%",    "수출물량지수 전년비",      "yoy_pct"),
 
     # ── 09. 소비·산업 ─────────────────────────────────────────────────────
     # 402Y015: 소매판매지수(*AA=총지수) → YoY 계산
     ("RETAIL_SALES_YOY",    "402Y015", "M", "*AA",     "%",    "소매판매 전년비",          "yoy_pct"),
-    # 402Y014: 산업생산지수(*AA=총지수) → YoY 계산
-    ("INDPRO_YOY",          "402Y014", "M", "*AA",     "%",    "광공업생산 전년비",        "yoy_pct"),
     # 511Y004: 소비자동향CSI
     ("CSI",                 "511Y004", "M", "FMAA",    "지수", "소비자동향CSI",           None),
 
@@ -338,14 +332,6 @@ def collect_all() -> pd.DataFrame:
 
     records = _compute_derived(records)
 
-    # ── 동일값 오류 감지 ────────────────────────────────────────────────────
-    retail_val = records.get("RETAIL_SALES_YOY", {}).get("value")
-    indpro_val = records.get("INDPRO_YOY", {}).get("value")
-    if retail_val is not None and indpro_val is not None and retail_val == indpro_val:
-        print(f"  [WARN] RETAIL_SALES_YOY == INDPRO_YOY ({retail_val}): "
-              f"stat_code 오류 의심 → INDPRO_YOY 제외")
-        records["INDPRO_YOY"]["value"] = None
-
     rows_out = []
     for key, meta in records.items():
         rows_out.append({
@@ -366,14 +352,14 @@ def collect_all() -> pd.DataFrame:
 CATEGORY_MAP = {
     "01_금리·채권":  ["BOK_BASE_RATE", "GOV_BOND_3Y", "GOV_BOND_10Y", "CD_91D",
                      "CORP_BOND_AA_MINUS", "CORP_BOND_BBB_MINUS"],
-    "02_물가·인플레": ["CPI_YOY", "CORE_CPI_YOY", "PPI_YOY", "INFLATION_EXPECT", "IMPORT_PRICE_YOY"],
+    "02_물가·인플레": ["CPI_YOY", "CORE_CPI_YOY", "PPI_YOY", "IMPORT_PRICE_YOY"],
     "03_GDP·경기":  ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY", "CLI_COINCIDENT", "CLI_LEADING", "BSI_ALL"],
     "04_노동시장":   ["UNEMPLOYMENT_RATE", "EMPLOYMENT_CHANGE", "LABOR_PARTICIPATION",
-                     "EMPLOYMENT_RATE", "YOUTH_UNEMPLOYMENT"],
+                     "EMPLOYMENT_RATE"],
     "05_통화·유동성": ["BASE_MONEY", "CORP_LOAN"],
     "06_주택시장":   ["HOUSE_PRICE_BUY", "HOUSE_PRICE_RENT", "APT_PRICE_BUY", "HOUSING_START"],
-    "07_수출입·무역": ["EXPORT_YOY", "IMPORT_YOY", "EXPORT_VOLUME_YOY"],
-    "08_소비·산업":  ["RETAIL_SALES_YOY", "INDPRO_YOY", "CSI"],
+    "07_수출입·무역": ["EXPORT_YOY", "IMPORT_YOY"],
+    "08_소비·산업":  ["RETAIL_SALES_YOY", "CSI"],
     "09_금융시장":   ["KOSPI", "KOSDAQ", "CD_BOK_SPREAD", "CREDIT_SPREAD"],
 }
 

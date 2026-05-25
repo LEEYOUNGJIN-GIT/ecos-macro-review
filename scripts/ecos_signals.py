@@ -142,71 +142,24 @@ def sig_03_inflation_regime(d: dict) -> dict:
     }
 
 
-def sig_04_inflation_expectation(d: dict) -> dict:
-    """4. 기대인플레 디앵커링 (물가전망CSI 기준)
-
-    INFLATION_EXPECT는 소비자동향조사 물가전망CSI(FMAB)를 대용치로 사용.
-    CSI 100 = 중립(상승/하락 기대 동일), >100 = 물가상승 기대 우세.
-    직접 인플레율(%)이 아니므로 80~140 CSI 스케일 적용.
-    데이터가 12개월 이상 지연된 경우 score = None 처리.
-    """
-    from datetime import date as _date
-    exp = g(d, "INFLATION_EXPECT")
-    exp_date = d.get("INFLATION_EXPECT__date", "N/A")
-
-    stale = False
-    try:
-        if len(exp_date) == 6 and exp_date.isdigit():
-            obs = _date(int(exp_date[:4]), int(exp_date[4:6]), 1)
-            stale = (_date.today() - obs).days > 365
-    except Exception:
-        pass
-
-    if exp is None or stale:
-        reason = f"데이터 {exp_date} — 12개월 이상 지연" if stale else "결측"
-        return {
-            "id": "SIG04", "name": "기대인플레 디앵커링",
-            "value": exp, "unit": "CSI",
-            "detail": f"물가전망CSI: {fmt(exp)} ({reason}) → 신호 제외",
-            "threshold": "CSI ≥115 인플레 기대 상승 / ≥130 디앵커링 경보",
-            "score": None,
-        }
-
-    score = score_0_10(exp, 80.0, 140.0)
-    return {
-        "id": "SIG04", "name": "기대인플레 디앵커링",
-        "value": exp, "unit": "CSI",
-        "detail": f"물가전망CSI: {fmt(exp)} (100=중립, >115 인플레기대, <85 디플레기대) | 기준일: {exp_date}",
-        "threshold": "CSI ≥115 인플레 기대 상승 / ≥130 디앵커링 경보",
-        "score": score,
-    }
-
-
 def sig_05_labor_market(d: dict) -> dict:
     """6. 노동시장 종합"""
     unemp = g(d, "UNEMPLOYMENT_RATE")
     emp_chg = g(d, "EMPLOYMENT_CHANGE")
     emp_rate = g(d, "EMPLOYMENT_RATE")
-    youth_unemp = g(d, "YOUTH_UNEMPLOYMENT")
     # 실업률: 2% → 0점, 5% → 10점
     s_unemp = score_0_10(unemp, 2.0, 5.0)
     # 취업자 증가: 30만 이상 → 0점, -10만 이하 → 10점
     s_emp = score_0_10(emp_chg, -100.0, 300.0, invert=True) if emp_chg is not None else None
     # 고용률: 63% 이상 → 0점, 58% 이하 → 10점
     s_erate = score_0_10(emp_rate, 58.0, 63.0, invert=True) if emp_rate is not None else None
-    # 청년실업률: 5% → 0점, 12% → 10점
-    # YOUTH_UNEMPLOYMENT가 전체 실업률과 동일 시리즈(I61BC 대용)인 경우 중복 계산 방지
-    if youth_unemp is not None and unemp is not None and youth_unemp == unemp:
-        s_youth = None
-    else:
-        s_youth = score_0_10(youth_unemp, 5.0, 12.0) if youth_unemp is not None else None
-    vals = [v for v in [s_unemp, s_emp, s_erate, s_youth] if v is not None]
+    vals = [v for v in [s_unemp, s_emp, s_erate] if v is not None]
     score = round(float(np.mean(vals)), 2) if vals else None
     return {
         "id": "SIG05", "name": "노동시장 종합",
         "value": unemp, "unit": "% (실업률)",
         "detail": (f"실업률({fmt(unemp)}%) / 취업자증감({fmt(emp_chg, 0)}천명) / "
-                   f"고용률({fmt(emp_rate)}%) / 청년실업률({fmt(youth_unemp)}%)"),
+                   f"고용률({fmt(emp_rate)}%)"),
         "threshold": "실업률 ≥4.5 위험 / 고용률 ≤59 경보",
         "score": score,
     }
@@ -264,21 +217,6 @@ def sig_08_business_cycle(d: dict) -> dict:
         "value": coin, "unit": "지수 (동행순환변동치)",
         "detail": f"동행지수순환변동({fmt(coin)}) / 선행지수순환변동({fmt(lead)})",
         "threshold": "<98 경기 하강 / <96 침체 신호",
-        "score": score,
-    }
-
-
-def sig_09_industrial_momentum(d: dict) -> dict:
-    """9. 산업생산 모멘텀 (광공업생산 YoY)"""
-    indpro = g(d, "INDPRO_YOY")
-    # 광공업생산 YoY: -5% → 위험, +5% → 안전
-    s_ip = score_0_10(indpro, -5.0, 5.0, invert=True) if indpro is not None else None
-    score = s_ip
-    return {
-        "id": "SIG09", "name": "산업생산 모멘텀",
-        "value": indpro, "unit": "% YoY",
-        "detail": f"광공업생산YoY({fmt(indpro)}%)",
-        "threshold": "광공업생산 <-3% 위험 / 연속 3개월 감소 경보",
         "score": score,
     }
 
@@ -341,8 +279,8 @@ def sig_12_kospi_regime(d: dict) -> dict:
 # ---------------------------------------------------------------------------
 SIGNAL_FUNCS = [
     sig_01_term_spread, sig_02_real_rate_gap, sig_03_inflation_regime,
-    sig_04_inflation_expectation, sig_05_labor_market, sig_06_consumer_sentiment,
-    sig_07_credit_stress, sig_08_business_cycle, sig_09_industrial_momentum,
+    sig_05_labor_market, sig_06_consumer_sentiment,
+    sig_07_credit_stress, sig_08_business_cycle,
     sig_10_trade, sig_11_housing_market, sig_12_kospi_regime,
 ]
 
