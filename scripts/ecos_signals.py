@@ -82,7 +82,7 @@ def overall_risk(scores: list[float | None]) -> float | None:
 
 
 # ---------------------------------------------------------------------------
-# 15개 신호 계산
+# 신호 계산 함수 (10개: SIG01-03·05-08·10-12)
 # ---------------------------------------------------------------------------
 def sig_01_term_spread(d: dict) -> dict:
     """1. 장단기 금리 스프레드 (국고채 10Y - 기준금리)"""
@@ -238,23 +238,29 @@ def sig_10_trade(d: dict) -> dict:
 
 
 def sig_11_housing_market(d: dict) -> dict:
-    """11. 주택시장"""
+    """11. 주택시장 — 착공지수(HOUSING_START) 기반 점수.
+
+    HOUSE_PRICE_BUY/RENT/APT는 거래금액(백만원, 누계 여부 미확인)으로
+    가격지수 임계값(85~120) 적용 불가 → 점수 산정에서 제외하고 참고값으로만 표시.
+    착공지수 100=기준: 값이 높을수록 공급 활발 → 가격 압력 낮음 → 낮은 점수.
+    """
     buy = g(d, "HOUSE_PRICE_BUY")
     rent = g(d, "HOUSE_PRICE_RENT")
     apt = g(d, "APT_PRICE_BUY")
     start = g(d, "HOUSING_START")
-    # 주택매매가격지수: 115 이상 → 과열, 90 이하 → 침체
-    s_buy = score_0_10(buy, 85.0, 120.0) if buy is not None else None
-    # 매매-전세 비율: 높을수록 갭투자 압력
-    gap = round(buy - rent, 2) if (buy is not None and rent is not None) else None
-    s_gap = score_0_10(gap, -5.0, 30.0) if gap is not None else None
-    vals = [v for v in [s_buy, s_gap] if v is not None]
-    score = round(float(np.mean(vals)), 2) if vals else None
+    # 착공지수만 점수에 사용: 60→위험(공급부족), 140→안전(공급 충분)
+    s_start = score_0_10(start, 60.0, 140.0, invert=True) if start is not None else None
+    score = s_start
+    buy_disp  = f"{fmt(buy, 0)}백만원"  if buy  is not None else "N/A"
+    rent_disp = f"{fmt(rent, 0)}백만원" if rent is not None else "N/A"
+    apt_disp  = f"{fmt(apt, 0)}백만원"  if apt  is not None else "N/A"
     return {
         "id": "SIG11", "name": "주택시장",
-        "value": buy, "unit": "십억원 (매매금액)",
-        "detail": f"매매({fmt(buy, 0)}) / 임대({fmt(rent, 0)}) / 아파트({fmt(apt, 0)}) / 착공지수({fmt(start)})",
-        "threshold": "매매금액 급등 → 과열 신호 / 착공지수 급감 → 공급 부족",
+        "value": start, "unit": "지수 (착공지수)",
+        "detail": (f"착공지수({fmt(start)}) | "
+                   f"매매거래금액({buy_disp}) / 임대({rent_disp}) / 아파트({apt_disp})"
+                   f" [거래금액=참고값, 점수 제외]"),
+        "threshold": "착공지수 <80 공급 급감·가격 압력 / >130 공급 과잉 안정",
         "score": score,
     }
 
@@ -317,7 +323,7 @@ def build_md(signals: list[dict], generated_at: str) -> str:
         "",
         "---",
         "",
-        "## 12개 신호 요약",
+        f"## {len(signals)}개 신호 요약",
         "",
         "| ID | 신호명 | 현재값 | 점수 | 등급 |",
         "|----|------|------|-----|-----|",

@@ -86,9 +86,9 @@ SERIES = [
 
     # ── 07. 주택시장 ───────────────────────────────────────────────────────
     # 901Y092: 부동산거래 금액(매매/임대) — 가격지수 아님, 금액 데이터
-    ("HOUSE_PRICE_BUY",     "901Y092", "M", "E100",    "십억원","주택매매금액 합계",       None),  # P63AA 오류 → E100(금액)
-    ("HOUSE_PRICE_RENT",    "901Y092", "M", "I100",    "십억원","주택임대금액 합계",       None),  # P63BA 오류 → I100(금액)
-    ("APT_PRICE_BUY",       "901Y092", "M", "E101",    "십억원","아파트매매금액",          None),  # P63AD 오류 → E101(금액)
+    ("HOUSE_PRICE_BUY",     "901Y092", "M", "E100",    "백만원","주택매매금액 합계",       None),  # P63AA 오류 → E100(금액) / 단위: 백만원(십억원 아님)
+    ("HOUSE_PRICE_RENT",    "901Y092", "M", "I100",    "백만원","주택임대금액 합계",       None),  # P63BA 오류 → I100(금액) / 단위: 백만원
+    ("APT_PRICE_BUY",       "901Y092", "M", "E101",    "백만원","아파트매매금액",          None),  # P63AD 오류 → E101(금액) / 단위: 백만원
     # 901Y066: 건설경기지수 (I15A=주택착공지수)
     ("HOUSING_START",       "901Y066", "M", "I15A",    "지수", "주택착공지수",            None),  # I16Y 오류 → I15A
 
@@ -105,9 +105,9 @@ SERIES = [
     ("CSI",                 "511Y004", "M", "FMAA",    "지수", "소비자동향CSI",           None),
 
     # ── 10. 금융시장 ───────────────────────────────────────────────────────
-    # 802Y001: 주가지수 (월별 없음, 일별로 최근값 사용)
-    ("KOSPI",               "802Y001", "D", "0001000", "pt",   "KOSPI 지수",             None),
-    ("KOSDAQ",              "802Y001", "D", "0089000", "pt",   "KOSDAQ 지수",            None),
+    # 802Y001: 주가지수 — 일별(D) 요청 시 ECOS 업데이트 지연(~7개월)이 확인되어 월별(M) 사용
+    ("KOSPI",               "802Y001", "M", "0001000", "pt",   "KOSPI 지수(월평균)",     None),
+    ("KOSDAQ",              "802Y001", "M", "0089000", "pt",   "KOSDAQ 지수(월평균)",    None),
     ("CD_BOK_SPREAD",       "721Y001", "M", "SPREAD",  "%",    "CD-기준금리 스프레드 (파생)", None),
     ("CREDIT_SPREAD",       "721Y001", "M", "CSPREAD", "%",    "회사채BBB-국채3Y 스프레드 (파생)", None),
 ]
@@ -289,6 +289,56 @@ def _compute_derived(records: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 데이터 품질 검증
+# ---------------------------------------------------------------------------
+def _check_data_quality(records: dict) -> dict:
+    """수집 후 데이터 품질 이상치를 탐지하여 None 처리.
+
+    검증 항목
+    ─────────
+    1) 신선도 (Staleness): 월별 6개월·일별 180일 이상 지연 시 None
+       - 511Y004/FMAA (CSI) 등 ECOS에서 일부 시리즈가 수년 전 데이터만 반환하는
+         사례가 확인됨. 해당 데이터가 성장점수·신호에 투입되면 오류 분석 유발.
+    2) 소매판매 이상치: 402Y015/*AA 가 광공업생산지수와 동일값을 반환하는
+       item_code 오류가 확인됨. YoY |25%| 초과 시 None.
+    """
+    from datetime import date as _date
+    today = _date.today()
+
+    # ── 1. 신선도 검사 ────────────────────────────────────────────────────
+    for key, meta in records.items():
+        if meta.get("value") is None:
+            continue
+        period = meta.get("period", "M")
+        obs_date = meta.get("date", "N/A")
+        try:
+            if period == "M" and len(obs_date) == 6 and obs_date.isdigit():
+                obs = _date(int(obs_date[:4]), int(obs_date[4:6]), 1)
+                months_lag = (today.year - obs.year) * 12 + (today.month - obs.month)
+                if months_lag > 6:
+                    print(f"  [STALE] {key}: {obs_date} ({months_lag}개월 지연) → None")
+                    records[key]["value"] = None
+            elif period == "D" and len(obs_date) == 8 and obs_date.isdigit():
+                obs = _date(int(obs_date[:4]), int(obs_date[4:6]), int(obs_date[6:8]))
+                if (today - obs).days > 180:
+                    print(f"  [STALE] {key}: {obs_date} ({(today - obs).days}일 지연) → None")
+                    records[key]["value"] = None
+        except Exception:
+            pass
+
+    # ── 2. 소매판매 YoY 이상치 ────────────────────────────────────────────
+    # 402Y015/*AA 는 광공업생산지수(402Y014)와 동일값을 반환하는 이력 있음.
+    # 한국 소매판매 YoY 25% 초과는 경제적으로 비합리적 → None 처리
+    if "RETAIL_SALES_YOY" in records and records["RETAIL_SALES_YOY"]["value"] is not None:
+        val = records["RETAIL_SALES_YOY"]["value"]
+        if abs(val) > 25.0:
+            print(f"  [OUTLIER] RETAIL_SALES_YOY={val:.2f}% → |25%| 초과, item_code(*AA) 오류 추정 → None")
+            records["RETAIL_SALES_YOY"]["value"] = None
+
+    return records
+
+
+# ---------------------------------------------------------------------------
 # 메인 수집 루프
 # ---------------------------------------------------------------------------
 CALC_FUNCS = {
@@ -331,6 +381,7 @@ def collect_all() -> pd.DataFrame:
         time.sleep(CALL_INTERVAL)
 
     records = _compute_derived(records)
+    records = _check_data_quality(records)
 
     rows_out = []
     for key, meta in records.items():
