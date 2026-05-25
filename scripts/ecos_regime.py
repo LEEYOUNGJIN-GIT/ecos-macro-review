@@ -78,7 +78,7 @@ def fmt(v: float | None, d: int = 2) -> str:
 
 # ---------------------------------------------------------------------------
 # 성장 점수 (0-10, 높을수록 강한 성장)
-# 7개 요소 (INDPRO_YOY 제거; CSI·RETAIL_SALES_YOY 데이터 오류 시 자동 제외)
+# 5개 요소 (소거: INDPRO_YOY·RETAIL_SALES_YOY·CSI — API 데이터 부재)
 # ---------------------------------------------------------------------------
 def compute_growth_score(data: dict) -> dict:
     components = []
@@ -88,32 +88,22 @@ def compute_growth_score(data: dict) -> dict:
     s, w = score_component(gdp, -3.0, 6.0, weight=2.0)
     components.append(("GDP_GROWTH_YOY", "실질GDP 전년비", gdp, "%", s, w))
 
-    # 2. 소매판매 YoY (weight 1.5)
-    retail = g(data, "RETAIL_SALES_YOY")
-    s, w = score_component(retail, -5.0, 8.0, weight=1.5)
-    components.append(("RETAIL_SALES_YOY", "소매판매 전년비", retail, "%", s, w))
-
-    # 3. 고용률 (weight 1.0)
+    # 2. 고용률 (weight 1.0)
     emp = g(data, "EMPLOYMENT_RATE")
     s, w = score_component(emp, 58.0, 65.0, weight=1.0)
     components.append(("EMPLOYMENT_RATE", "고용률", emp, "%", s, w))
 
-    # 4. 경기동행지수 순환변동치 (weight 1.5)
+    # 3. 경기동행지수 순환변동치 (weight 1.5)
     coin = g(data, "CLI_COINCIDENT")
     s, w = score_component(coin, 94.0, 104.0, weight=1.5)
     components.append(("CLI_COINCIDENT", "경기동행지수순환변동", coin, "지수", s, w))
 
-    # 5. 경기선행지수 순환변동치 (weight 1.5)
+    # 4. 경기선행지수 순환변동치 (weight 1.5)
     lead = g(data, "CLI_LEADING")
     s, w = score_component(lead, 94.0, 104.0, weight=1.5)
     components.append(("CLI_LEADING", "경기선행지수순환변동", lead, "지수", s, w))
 
-    # 6. 소비자심리지수 (weight 1.0)
-    csi = g(data, "CSI")
-    s, w = score_component(csi, 70.0, 115.0, weight=1.0)
-    components.append(("CSI", "소비자심리지수", csi, "지수", s, w))
-
-    # 7. KOSPI (weight 1.0)
+    # 5. KOSPI (weight 1.0)
     kospi = g(data, "KOSPI")
     s, w = score_component(kospi, 1800.0, 3200.0, weight=1.0)
     components.append(("KOSPI", "KOSPI 지수", kospi, "pt", s, w))

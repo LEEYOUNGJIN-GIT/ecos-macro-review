@@ -1,7 +1,10 @@
 """
 scripts/ecos_signals.py
-data/ecos_latest.csv 를 읽어 10개 파생 신호와 종합 위험도를 계산하고
+data/ecos_latest.csv 를 읽어 9개 파생 신호와 종합 위험도를 계산하고
 data/ecos_signals.md 를 생성합니다.
+
+소거된 신호:
+  SIG06 소비자심리 — CSI(511Y004), RETAIL_SALES_YOY(402Y015) 모두 API 데이터 부재
 """
 
 import sys
@@ -165,25 +168,6 @@ def sig_05_labor_market(d: dict) -> dict:
     }
 
 
-def sig_06_consumer_sentiment(d: dict) -> dict:
-    """6. 소비자심리 (CSI, 소매판매 YoY)"""
-    csi = g(d, "CSI")
-    retail = g(d, "RETAIL_SALES_YOY")
-    # CSI: 100 기준선, <80 심각 위축
-    s_csi = score_0_10(csi, 70.0, 115.0, invert=True) if csi is not None else None
-    # 소매판매 YoY: +5% → 안전, -3% → 위험
-    s_retail = score_0_10(retail, -5.0, 5.0, invert=True) if retail is not None else None
-    vals = [v for v in [s_csi, s_retail] if v is not None]
-    score = round(float(np.mean(vals)), 2) if vals else None
-    return {
-        "id": "SIG06", "name": "소비자심리",
-        "value": csi, "unit": "지수",
-        "detail": f"CSI({fmt(csi)}) / 소매판매YoY({fmt(retail)}%)",
-        "threshold": "CSI <80 심각 위축 / <90 경계",
-        "score": score,
-    }
-
-
 def sig_07_credit_stress(d: dict) -> dict:
     """7. 신용 스트레스 (회사채-국채 스프레드, CD-기준금리 스프레드)"""
     credit_sp = g(d, "CREDIT_SPREAD")
@@ -285,7 +269,9 @@ def sig_12_kospi_regime(d: dict) -> dict:
 # ---------------------------------------------------------------------------
 SIGNAL_FUNCS = [
     sig_01_term_spread, sig_02_real_rate_gap, sig_03_inflation_regime,
-    sig_05_labor_market, sig_06_consumer_sentiment,
+    sig_05_labor_market,
+    # SIG06 소비자심리 소거: CSI(511Y004) 2022-08 이후 업데이트 없음,
+    #   RETAIL_SALES_YOY(402Y015) 7개월 지연 + item_code 오류 → 두 입력 모두 API 데이터 부재
     sig_07_credit_stress, sig_08_business_cycle,
     sig_10_trade, sig_11_housing_market, sig_12_kospi_regime,
 ]

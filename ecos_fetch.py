@@ -1,7 +1,12 @@
 """
 ecos_fetch.py
-한국은행 ECOS API에서 33개 거시경제 지표를 수집하고
+한국은행 ECOS API에서 30개 거시경제 지표를 수집하고
 data/ecos_latest.csv 및 data/ecos_latest.md 를 생성합니다.
+
+소거된 시리즈 (API 데이터 부재 확인):
+  BSI_ALL       (512Y014/99988)  — 최신 데이터 2023-05 (25개월 지연, ECOS 업데이트 중단)
+  CSI           (511Y004/FMAA)   — 최신 데이터 2022-08 (33개월 지연, 서비스 구조 변경 추정)
+  RETAIL_SALES_YOY (402Y015/*AA) — 최신 데이터 2024-10 (7개월 지연) + item_code 오류 이력
 """
 
 import os
@@ -68,8 +73,7 @@ SERIES = [
     # 901Y067: 경기지수 (I16D=동행순환변동치, I16E=선행순환변동치)
     ("CLI_COINCIDENT",      "901Y067", "M", "I16D",    "지수", "경기동행지수 순환변동치",  None),  # I16A(잘못된값) → I16D
     ("CLI_LEADING",         "901Y067", "M", "I16E",    "지수", "경기선행지수 순환변동치",  None),  # I16B → I16E
-    # 512Y014: 기업경기실사지수 (99988=전업종)
-    ("BSI_ALL",             "512Y014", "M", "99988",   "BSI",  "기업경기실사지수 전산업",  None),  # AA 오류 → 99988
+    # BSI_ALL (512Y014/99988) 소거: 최신 데이터 2023-05, 25개월 지연 → API 미업데이트
 
     # ── 05. 노동시장 ───────────────────────────────────────────────────────
     # 901Y027: 고용동향 (I38 계열 오류 → I61 계열 수정)
@@ -101,11 +105,9 @@ SERIES = [
     #   item_code *AA 오류 여부는 ECOS 통계표 403Y001 항목 코드 재확인 필요.
     ("IMPORT_YOY",          "403Y001", "M", "*AA",     "%",    "수입물량 전년비",          "yoy_pct"),
 
-    # ── 09. 소비·산업 ─────────────────────────────────────────────────────
-    # 402Y015: 소매판매지수(*AA=총지수) → YoY 계산
-    ("RETAIL_SALES_YOY",    "402Y015", "M", "*AA",     "%",    "소매판매 전년비",          "yoy_pct"),
-    # 511Y004: 소비자동향CSI
-    ("CSI",                 "511Y004", "M", "FMAA",    "지수", "소비자동향CSI",           None),
+    # ── 09. 소비·산업 ── (카테고리 전체 소거)
+    # RETAIL_SALES_YOY (402Y015/*AA): 최신 2024-10 (7개월 지연) + item_code 오류 이력 → 소거
+    # CSI           (511Y004/FMAA) : 최신 2022-08 (33개월 지연) → ECOS 서비스 구조 변경 추정 → 소거
 
     # ── 10. 금융시장 ───────────────────────────────────────────────────────
     # 802Y001: 주가지수 일별 시리즈.
@@ -298,17 +300,18 @@ def _compute_derived(records: dict) -> dict:
 # 데이터 품질 검증
 # ---------------------------------------------------------------------------
 def _check_data_quality(records: dict) -> dict:
-    """수집 후 데이터 품질 이상치를 탐지하여 None 처리.
+    """수집 후 데이터 품질 — 신선도 이상치 탐지.
 
     검증 항목
     ─────────
-    1) 신선도 (Staleness): 월별 6개월·일별 180일 이상 지연 시 None
-       - 511Y004/FMAA (CSI) 등 ECOS에서 일부 시리즈가 수년 전 데이터만 반환하는
-         사례가 확인됨. 해당 데이터가 성장점수·신호에 투입되면 오류 분석 유발.
-       - STALENESS_EXEMPT: ECOS 시장 데이터(주가지수 등)는 구조적으로 ~6-7개월
-         지연 게재되므로 신선도 검사에서 면제. 실제 데이터이며 최신 시리즈임.
-    2) 소매판매 이상치: 402Y015/*AA 가 광공업생산지수와 동일값을 반환하는
-       item_code 오류가 확인됨. YoY |25%| 초과 시 None.
+    신선도 (Staleness): 월별 6개월·일별 180일 이상 지연 시 None
+    - STALENESS_EXEMPT: ECOS 시장 데이터(주가지수)는 구조적으로 ~6-7개월 지연
+      게재되므로 신선도 검사 면제. 실제 데이터이며 현재 운용 중인 시리즈임.
+
+    ※ 과거 검증 항목(소거 완료로 불필요):
+    - RETAIL_SALES_YOY 이상치: 해당 시리즈 자체가 소거됨
+    - CSI 신선도: 해당 시리즈 자체가 소거됨
+    - BSI_ALL 신선도: 해당 시리즈 자체가 소거됨
     """
     from datetime import date as _date
     today = _date.today()
@@ -316,7 +319,6 @@ def _check_data_quality(records: dict) -> dict:
     # ECOS 시장 데이터: 구조적 지연(~7개월)이 정상 특성 → 신선도 검사 면제
     STALENESS_EXEMPT = {"KOSPI", "KOSDAQ"}
 
-    # ── 1. 신선도 검사 ────────────────────────────────────────────────────
     for key, meta in records.items():
         if meta.get("value") is None:
             continue
@@ -338,15 +340,6 @@ def _check_data_quality(records: dict) -> dict:
                     records[key]["value"] = None
         except Exception:
             pass
-
-    # ── 2. 소매판매 YoY 이상치 ────────────────────────────────────────────
-    # 402Y015/*AA 는 광공업생산지수(402Y014)와 동일값을 반환하는 이력 있음.
-    # 한국 소매판매 YoY 25% 초과는 경제적으로 비합리적 → None 처리
-    if "RETAIL_SALES_YOY" in records and records["RETAIL_SALES_YOY"]["value"] is not None:
-        val = records["RETAIL_SALES_YOY"]["value"]
-        if abs(val) > 25.0:
-            print(f"  [OUTLIER] RETAIL_SALES_YOY={val:.2f}% → |25%| 초과, item_code(*AA) 오류 추정 → None")
-            records["RETAIL_SALES_YOY"]["value"] = None
 
     return records
 
@@ -417,13 +410,14 @@ CATEGORY_MAP = {
     "01_금리·채권":  ["BOK_BASE_RATE", "GOV_BOND_3Y", "GOV_BOND_10Y", "CD_91D",
                      "CORP_BOND_AA_MINUS", "CORP_BOND_BBB_MINUS"],
     "02_물가·인플레": ["CPI_YOY", "CORE_CPI_YOY", "PPI_YOY", "IMPORT_PRICE_YOY"],
-    "03_GDP·경기":  ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY", "CLI_COINCIDENT", "CLI_LEADING", "BSI_ALL"],
+    "03_GDP·경기":  ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY", "CLI_COINCIDENT", "CLI_LEADING"],
+    # BSI_ALL 소거 (512Y014/99988: 2023-05 이후 업데이트 없음)
     "04_노동시장":   ["UNEMPLOYMENT_RATE", "EMPLOYMENT_CHANGE", "LABOR_PARTICIPATION",
                      "EMPLOYMENT_RATE"],
     "05_통화·유동성": ["BASE_MONEY", "CORP_LOAN"],
     "06_주택시장":   ["HOUSE_PRICE_BUY", "HOUSE_PRICE_RENT", "APT_PRICE_BUY", "HOUSING_START"],
     "07_수출입·무역": ["EXPORT_YOY", "IMPORT_YOY"],
-    "08_소비·산업":  ["RETAIL_SALES_YOY", "CSI"],
+    # 08_소비·산업 카테고리 전체 소거 (RETAIL_SALES_YOY·CSI 모두 API 데이터 부재)
     "09_금융시장":   ["KOSPI", "KOSDAQ", "CD_BOK_SPREAD", "CREDIT_SPREAD"],
 }
 
