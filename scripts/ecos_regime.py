@@ -95,9 +95,10 @@ def fmt(v: float | None, d: int = 2) -> str:
 def compute_growth_score(data: dict) -> dict:
     components = []
 
-    # 1. 실질 GDP YoY (weight 2.0)
+    # 1. 실질 GDP YoY (weight 2.0) — 범위 (-2.0, 8.0)으로 확대 (2026Q1 6.42% 클리핑 해소)
+    # 구 (-3.0, 6.0)은 6%+ 성장 시 항상 최대값(10.0)이 되어 차별화 불가했음
     gdp = g(data, "GDP_GROWTH_YOY")
-    s, w = score_component(gdp, -3.0, 6.0, weight=2.0)
+    s, w = score_component(gdp, -2.0, 8.0, weight=2.0)
     components.append(("GDP_GROWTH_YOY", "실질GDP 전년비", gdp, "%", s, w))
 
     # 2. 고용률 (weight 1.0)

@@ -20,6 +20,11 @@ data/ecos_latest.csv 및 data/ecos_latest.md 를 생성합니다.
   - KB전세가격지수 추가: 901Y063/P64A (KB주택전세가격지수 총지수 2022.01=100 → YoY)
   - M2_YOY 추가: 161Y006/BBHA00 (M2 광의통화 평잔 원계열 → YoY)
   - USD_KRW 추가: 731Y004/0000001/0000100 (원/달러 월평균 환율)
+  - CORP_LOAN(104Y014/BCA8=수신합계, 완전 오류) → BANK_LOANS(104Y016/BDCA1=총대출금)으로 교체
+    (BCA8는 예금은행 수신합계(예금)였음. 대출금 총계(BDCA1)로 정정)
+  - IMPORT_YOY ≥30% 시 팩트테이블에 "기저효과" 경고 플래그 자동 표시
+  - GDP 성장 점수 정규화 범위 조정: (-3.0, 6.0) → (-2.0, 8.0) in ecos_regime.py
+    (2026Q1 실질GDP YoY 6.42%가 상한 6.0 초과로 매번 클리핑되던 문제 해소)
 
   v2.1 (2026-05-26):
   - KOSPI/KOSDAQ 일별 조회 시작일을 today-2년에서 today-280일로 변경
@@ -111,8 +116,9 @@ SERIES = [
     ("M2_YOY",              "161Y006", "M", "BBHA00",  "%",    "M2 광의통화 전년비",       "yoy_pct"),
     # 102Y004: 본원통화 잔액 (ABA104=본원통화)
     ("BASE_MONEY",          "102Y004", "M", "ABA104",  "십억원","본원통화 잔액",           None),
-    # 104Y014: 기업대출 (BCA8=합계)
-    ("CORP_LOAN",           "104Y014", "M", "BCA8",    "십억원","기업대출 잔액",           None),
+    # 104Y016: 예금은행 대출금(말잔), BDCA1=총대출금(가계+기업 합산)
+    # ※ 구 104Y014/BCA8은 "예금은행 총수신(수신합계)"로 기업대출이 아니었음 → 교체
+    ("BANK_LOANS",          "104Y016", "M", "BDCA1",   "십억원","예금은행 총대출금",       None),
 
     # ── 07. 주택시장 ───────────────────────────────────────────────────────
     # 901Y062: KB주택매매가격지수(2022.01=100), P63A=총지수 → YoY 계산
@@ -445,7 +451,7 @@ CATEGORY_MAP = {
     # BSI_ALL 소거 (512Y014/99988: 2023-05 이후 업데이트 없음)
     "04_노동시장":   ["UNEMPLOYMENT_RATE", "EMPLOYMENT_CHANGE", "LABOR_PARTICIPATION",
                      "EMPLOYMENT_RATE"],
-    "05_통화·유동성": ["M2_YOY", "BASE_MONEY", "CORP_LOAN"],
+    "05_통화·유동성": ["M2_YOY", "BASE_MONEY", "BANK_LOANS"],
     "06_주택시장":   ["KB_HOUSE_YOY", "KB_JEONSE_YOY", "HOUSING_START"],
     "07_수출입·무역": ["EXPORT_YOY", "IMPORT_YOY"],
     # 08_소비·산업 소거 (RETAIL_SALES_YOY·CSI 모두 API 데이터 부재) → 번호 08로 이동
@@ -485,6 +491,9 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
             val_str = f"{val:,.4f}".rstrip("0").rstrip(".") if val is not None else "N/A"
             # 값이 None(품질검사 탈락 등)이면 기준일도 N/A로 표시 (오해 방지)
             date_str = m["date"] if val is not None else "N/A"
+            # 수입금액 YoY 극단값(50%+) 경고 플래그: 관세충격·기저효과로 과대값 발생 가능
+            if k == "IMPORT_YOY" and val is not None and abs(val) >= 30:
+                val_str += " ⚠️기저효과"
             lines.append(f"| {k} | {m['label']} | {val_str} | {m['unit']} | {date_str} |")
         lines.append("")
 
