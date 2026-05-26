@@ -3,6 +3,12 @@ scripts/ecos_regime.py
 data/ecos_latest.csv 를 읽어 성장·인플레이션 점수를 계산하고
 2×2 매크로 레짐을 분류한 뒤 data/ecos_regime.md 를 생성합니다.
 
+v2.1 (2026-05-26):
+  - 성장 점수에 INDPRO_YOY(광공업생산 전년비, weight 1.0) 추가 → 6개 요소
+  - KOSPI 범위 조정: (1800, 3200) → (2500, 8500) (2026년 시장 수준 반영)
+  - IMPORT_PRICE_YOY 범위 확대: (-10, 15) → (-20, 40)으로 변경
+    (403Y005/B 수입물가지수 YoY가 30%+ 수준도 커버하도록)
+
 레짐 매트릭스:
         인플레 ↑ (>5)
              │
@@ -78,7 +84,7 @@ def fmt(v: float | None, d: int = 2) -> str:
 
 # ---------------------------------------------------------------------------
 # 성장 점수 (0-10, 높을수록 강한 성장)
-# 5개 요소 (소거: INDPRO_YOY·RETAIL_SALES_YOY·CSI — API 데이터 부재)
+# 6개 요소 (소거: RETAIL_SALES_YOY·CSI — API 데이터 부재)
 # ---------------------------------------------------------------------------
 def compute_growth_score(data: dict) -> dict:
     components = []
@@ -103,10 +109,15 @@ def compute_growth_score(data: dict) -> dict:
     s, w = score_component(lead, 94.0, 104.0, weight=1.5)
     components.append(("CLI_LEADING", "경기선행지수순환변동", lead, "지수", s, w))
 
-    # 5. KOSPI (weight 1.0)
+    # 5. KOSPI (weight 1.0) — 범위 2500~8500으로 조정 (2026년 시장 수준 반영)
     kospi = g(data, "KOSPI")
-    s, w = score_component(kospi, 1800.0, 3200.0, weight=1.0)
+    s, w = score_component(kospi, 2500.0, 8500.0, weight=1.0)
     components.append(("KOSPI", "KOSPI 지수", kospi, "pt", s, w))
+
+    # 6. 광공업생산 YoY (weight 1.0) — 실물 생산 활동 반영
+    indpro = g(data, "INDPRO_YOY")
+    s, w = score_component(indpro, -10.0, 15.0, weight=1.0)
+    components.append(("INDPRO_YOY", "광공업생산 전년비", indpro, "%", s, w))
 
     pairs = [(c[4], c[5]) for c in components]
     total = weighted_mean(pairs)
@@ -135,9 +146,9 @@ def compute_inflation_score(data: dict) -> dict:
     s, w = score_component(ppi, -3.0, 8.0, weight=1.5)
     components.append(("PPI_YOY", "생산자물가 전년비", ppi, "%", s, w))
 
-    # 4. 수입물가 YoY (weight 1.0)
+    # 4. 수입물가 YoY (weight 1.0) — 403Y005/B 수입품물가지수 기반, 범위 확대 적용
     imp = g(data, "IMPORT_PRICE_YOY")
-    s, w = score_component(imp, -10.0, 15.0, weight=1.0)
+    s, w = score_component(imp, -20.0, 40.0, weight=1.0)
     components.append(("IMPORT_PRICE_YOY", "수입물가 전년비", imp, "%", s, w))
 
     # 5. 임금(취업자 증감으로 대용) (weight 1.0)

@@ -1,12 +1,22 @@
 """
 ecos_fetch.py
-한국은행 ECOS API에서 30개 거시경제 지표를 수집하고
+한국은행 ECOS API에서 31개 거시경제 지표를 수집하고
 data/ecos_latest.csv 및 data/ecos_latest.md 를 생성합니다.
 
 소거된 시리즈 (API 데이터 부재 확인):
   BSI_ALL       (512Y014/99988)  — 최신 데이터 2023-05 (25개월 지연, ECOS 업데이트 중단)
   CSI           (511Y004/FMAA)   — 최신 데이터 2022-08 (33개월 지연, 서비스 구조 변경 추정)
   RETAIL_SALES_YOY (402Y015/*AA) — 최신 데이터 2024-10 (7개월 지연) + item_code 오류 이력
+
+수정 이력:
+  v2.1 (2026-05-26):
+  - KOSPI/KOSDAQ 일별 조회 시작일을 today-2년에서 today-280일로 변경
+    (200행 페이지 한계로 최신 데이터가 잘리는 버그 수정)
+  - IMPORT_PRICE_YOY 시리즈 교체: 901Y013/A(수입금액) → 403Y005/B(수입물가지수 2020=100)
+    (수입금액 절대값 YoY → 순수 가격 변화율 YoY로 정확도 개선)
+  - 403Y001/403Y003 레이블 수정: "물량 전년비" → "금액 전년비" (금액지수로 정정)
+  - INDPRO_YOY 추가: 401Y015/*AA/C (광공업생산지수 원계열 2020=100 → YoY)
+  - 카테고리 번호 정비: 09_금융시장 → 08_금융시장 (08_소비·산업 삭제로 번호 불연속 해소)
 """
 
 import os
@@ -63,16 +73,20 @@ SERIES = [
     ("CORE_CPI_YOY",        "901Y010", "M", "11",      "%",    "근원CPI 전년비",           "yoy_pct"),  # 근원물가지수 → YoY계산
     # 901Y009: 생산자물가지수(2020=100) → 지수에서 전년비 계산
     ("PPI_YOY",             "901Y009", "M", "0",       "%",    "생산자물가 전년비",        "yoy_pct"),  # YoY계산
-    # 901Y013: 수입금액 지수 → 지수에서 전년비 계산
-    ("IMPORT_PRICE_YOY",    "901Y013", "M", "A",       "%",    "수입금액 전년비",          "yoy_pct"),  # 수입금액지수 YoY
+    # 403Y005: 수출입물가지수(2020=100), B=수입품물가지수 → 지수에서 전년비 계산
+    # (구 901Y013/A는 수입금액 절대값으로 물가지수 아님 → 403Y005/B로 교체)
+    ("IMPORT_PRICE_YOY",    "403Y005", "M", "B",       "%",    "수입물가 전년비",          "yoy_pct"),
 
-    # ── 04. GDP·경기 ───────────────────────────────────────────────────────
+    # ── 04. GDP·경기·생산 ─────────────────────────────────────────────────
     # 200Y104: 실질GDP 계절조정(1118=합계) → QoQ/YoY 계산
     ("GDP_GROWTH_QOQ",      "200Y104", "Q", "1118",    "%",    "실질GDP 전기비",           "qoq_pct"),  # 10101 오류 → 1118+계산
     ("GDP_GROWTH_YOY",      "200Y104", "Q", "1118",    "%",    "실질GDP 전년비",           "yoy_pct"),  # 10111 오류 → 1118+계산
     # 901Y067: 경기지수 (I16D=동행순환변동치, I16E=선행순환변동치)
     ("CLI_COINCIDENT",      "901Y067", "M", "I16D",    "지수", "경기동행지수 순환변동치",  None),  # I16A(잘못된값) → I16D
     ("CLI_LEADING",         "901Y067", "M", "I16E",    "지수", "경기선행지수 순환변동치",  None),  # I16B → I16E
+    # 401Y015: 광공업생산지수(2020=100), *AA/C=총지수 원계열 → YoY 계산
+    # ITEM_CODE2=C(원계열) 명시로 계절조정(D)/추세(W) 중복 행 방지
+    ("INDPRO_YOY",          "401Y015", "M", "*AA/C",   "%",    "광공업생산 전년비",        "yoy_pct"),
     # BSI_ALL (512Y014/99988) 소거: 최신 데이터 2023-05, 25개월 지연 → API 미업데이트
 
     # ── 05. 노동시장 ───────────────────────────────────────────────────────
@@ -97,19 +111,18 @@ SERIES = [
     ("HOUSING_START",       "901Y066", "M", "I15A",    "지수", "주택착공지수",            None),  # I16Y 오류 → I15A
 
     # ── 08. 수출입·무역 ────────────────────────────────────────────────────
-    # 403Y003: 수출물량지수(*AA=총지수) → YoY 계산
-    ("EXPORT_YOY",          "403Y003", "M", "*AA",     "%",    "수출물량 전년비",          "yoy_pct"),
-    # 403Y001: 수입물량지수(*AA=총지수) → YoY 계산
-    # ※ 주의: 2025-2026년 관세 충격·기저효과로 YoY 50%+ 극단값 발생 가능.
-    #   수치가 경제적으로 과도해 보이더라도 API 원본 그대로 표시 (실제 데이터 가능성).
-    #   item_code *AA 오류 여부는 ECOS 통계표 403Y001 항목 코드 재확인 필요.
-    ("IMPORT_YOY",          "403Y001", "M", "*AA",     "%",    "수입물량 전년비",          "yoy_pct"),
+    # 403Y003: 수출금액지수(2020=100, *AA=총지수) → YoY 계산
+    # ※ 금액지수(가격×물량 복합)임. 물량지수와 혼동 주의.
+    ("EXPORT_YOY",          "403Y003", "M", "*AA",     "%",    "수출금액 전년비",          "yoy_pct"),
+    # 403Y001: 수입금액지수(2020=100, *AA=총지수) → YoY 계산
+    # ※ 금액지수(가격×물량 복합)임. 2025-2026년 50%+ YoY는 관세충격·기저효과 반영 가능성.
+    ("IMPORT_YOY",          "403Y001", "M", "*AA",     "%",    "수입금액 전년비",          "yoy_pct"),
 
-    # ── 09. 소비·산업 ── (카테고리 전체 소거)
+    # ── 소비·산업 (카테고리 전체 소거, 번호 미부여)
     # RETAIL_SALES_YOY (402Y015/*AA): 최신 2024-10 (7개월 지연) + item_code 오류 이력 → 소거
     # CSI           (511Y004/FMAA) : 최신 2022-08 (33개월 지연) → ECOS 서비스 구조 변경 추정 → 소거
 
-    # ── 10. 금융시장 ───────────────────────────────────────────────────────
+    # ── 08. 금융시장 ───────────────────────────────────────────────────────
     # 802Y001: 주가지수 일별 시리즈.
     # ECOS는 시장 데이터를 약 6-7개월 지연 게재하는 구조적 특성 있음.
     # 월별(M) 요청 시 802Y001 이 빈 결과를 반환하는 것이 확인되어 일별(D)로 복원.
@@ -130,7 +143,9 @@ def _date_range(period: str) -> tuple[str, str]:
     safe_daily_end = today - timedelta(days=1)
 
     if period == "D":
-        start = date(today.year - 2, 1, 1).strftime("%Y%m%d")
+        # 200행 페이지 한계: 2년치 일별 데이터(~520 거래일)를 요청하면 첫 200행(구 데이터)만 반환됨.
+        # today - 280일(≈200 거래일)로 제한하여 최신 데이터가 확실히 포함되도록 수정.
+        start = (today - timedelta(days=280)).strftime("%Y%m%d")
         end   = safe_daily_end.strftime("%Y%m%d")
     elif period == "M":
         start = date(today.year - 4, 1, 1).strftime("%Y%m")  # 4년 전 (YoY 계산용)
@@ -410,15 +425,16 @@ CATEGORY_MAP = {
     "01_금리·채권":  ["BOK_BASE_RATE", "GOV_BOND_3Y", "GOV_BOND_10Y", "CD_91D",
                      "CORP_BOND_AA_MINUS", "CORP_BOND_BBB_MINUS"],
     "02_물가·인플레": ["CPI_YOY", "CORE_CPI_YOY", "PPI_YOY", "IMPORT_PRICE_YOY"],
-    "03_GDP·경기":  ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY", "CLI_COINCIDENT", "CLI_LEADING"],
+    "03_GDP·경기·생산": ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY", "CLI_COINCIDENT", "CLI_LEADING",
+                        "INDPRO_YOY"],
     # BSI_ALL 소거 (512Y014/99988: 2023-05 이후 업데이트 없음)
     "04_노동시장":   ["UNEMPLOYMENT_RATE", "EMPLOYMENT_CHANGE", "LABOR_PARTICIPATION",
                      "EMPLOYMENT_RATE"],
     "05_통화·유동성": ["BASE_MONEY", "CORP_LOAN"],
     "06_주택시장":   ["HOUSE_PRICE_BUY", "HOUSE_PRICE_RENT", "APT_PRICE_BUY", "HOUSING_START"],
     "07_수출입·무역": ["EXPORT_YOY", "IMPORT_YOY"],
-    # 08_소비·산업 카테고리 전체 소거 (RETAIL_SALES_YOY·CSI 모두 API 데이터 부재)
-    "09_금융시장":   ["KOSPI", "KOSDAQ", "CD_BOK_SPREAD", "CREDIT_SPREAD"],
+    # 08_소비·산업 소거 (RETAIL_SALES_YOY·CSI 모두 API 데이터 부재) → 번호 08로 이동
+    "08_금융시장":   ["KOSPI", "KOSDAQ", "CD_BOK_SPREAD", "CREDIT_SPREAD"],
 }
 
 

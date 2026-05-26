@@ -1,9 +1,10 @@
 """
 scripts/ecos_signals.py
-data/ecos_latest.csv 를 읽어 9개 파생 신호와 종합 위험도를 계산하고
+data/ecos_latest.csv 를 읽어 10개 파생 신호와 종합 위험도를 계산하고
 data/ecos_signals.md 를 생성합니다.
 
 소거된 신호:
+  SIG04 기대인플레 디앵커링 — ECOS 기대인플레 시리즈 미수록 (BOK 서베이 데이터 비공개)
   SIG06 소비자심리 — CSI(511Y004), RETAIL_SALES_YOY(402Y015) 모두 API 데이터 부재
 """
 
@@ -206,7 +207,7 @@ def sig_08_business_cycle(d: dict) -> dict:
 
 
 def sig_10_trade(d: dict) -> dict:
-    """10. 수출 모멘텀 (수출물량 YoY)"""
+    """10. 수출 모멘텀 (수출금액 YoY, 403Y003 금액지수 기반)"""
     exp_yoy = g(d, "EXPORT_YOY")
     imp_yoy = g(d, "IMPORT_YOY")
     # 수출 YoY: -15% → 위험, +10% → 안전
@@ -214,8 +215,8 @@ def sig_10_trade(d: dict) -> dict:
     score = s_exp
     return {
         "id": "SIG10", "name": "수출 모멘텀",
-        "value": exp_yoy, "unit": "% YoY (수출물량)",
-        "detail": f"수출물량YoY({fmt(exp_yoy)}%) / 수입물량YoY({fmt(imp_yoy)}%)",
+        "value": exp_yoy, "unit": "% YoY (수출금액)",
+        "detail": f"수출금액YoY({fmt(exp_yoy)}%) / 수입금액YoY({fmt(imp_yoy)}%) [금액지수 기반]",
         "threshold": "수출 YoY <-10% 위험 / 연속 감소 경보",
         "score": score,
     }
@@ -249,17 +250,31 @@ def sig_11_housing_market(d: dict) -> dict:
     }
 
 
+def sig_09_industrial_production(d: dict) -> dict:
+    """9. 산업생산 모멘텀 (광공업생산지수 원계열 YoY)"""
+    indpro = g(d, "INDPRO_YOY")
+    # 광공업생산 YoY: -10% → 위험, +15% → 안전
+    score = score_0_10(indpro, -10.0, 15.0, invert=True) if indpro is not None else None
+    return {
+        "id": "SIG09", "name": "산업생산 모멘텀",
+        "value": indpro, "unit": "% YoY (광공업생산)",
+        "detail": f"광공업생산지수 전년비({fmt(indpro)}%)",
+        "threshold": "YoY <-5% 경계 / <-10% 위험 / >10% 호조",
+        "score": score,
+    }
+
+
 def sig_12_kospi_regime(d: dict) -> dict:
     """12. KOSPI 레짐"""
     kospi = g(d, "KOSPI")
-    # KOSPI 수준: 3000 이상 → 안전, 2000 이하 → 위험
-    s_kospi = score_0_10(kospi, 1800.0, 3000.0, invert=True) if kospi is not None else None
+    # KOSPI 수준 (2026년 기준): 7000+ 강세장 → 안전(저점수), 3000 이하 → 위험(고점수)
+    s_kospi = score_0_10(kospi, 3000.0, 8000.0, invert=True) if kospi is not None else None
     score = s_kospi
     return {
         "id": "SIG12", "name": "KOSPI 레짐",
         "value": kospi, "unit": "pt",
         "detail": f"KOSPI({fmt(kospi, 0)}pt)",
-        "threshold": "KOSPI <2000 약세장 / <1800 심각",
+        "threshold": "KOSPI <4000 하락 경계 / <3000 약세장 / <2500 심각 (2026년 기준)",
         "score": score,
     }
 
@@ -270,9 +285,11 @@ def sig_12_kospi_regime(d: dict) -> dict:
 SIGNAL_FUNCS = [
     sig_01_term_spread, sig_02_real_rate_gap, sig_03_inflation_regime,
     sig_05_labor_market,
+    # SIG04 기대인플레 미구현: ECOS 기대인플레 시리즈 비공개 (BOK 서베이 데이터)
     # SIG06 소비자심리 소거: CSI(511Y004) 2022-08 이후 업데이트 없음,
     #   RETAIL_SALES_YOY(402Y015) 7개월 지연 + item_code 오류 → 두 입력 모두 API 데이터 부재
     sig_07_credit_stress, sig_08_business_cycle,
+    sig_09_industrial_production,
     sig_10_trade, sig_11_housing_market, sig_12_kospi_regime,
 ]
 

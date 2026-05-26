@@ -1,8 +1,8 @@
 # 📊 ECOS 한국 거시경제 자동 모니터링
 
-> **한국은행 ECOS API → 30개 지표 수집 → 9개 파생 신호 → 2×2 레짐 분류 → claude.ai 자동 분석**
+> **한국은행 ECOS API → 31개 지표 수집 → 10개 파생 신호 → 2×2 레짐 분류 → claude.ai 자동 분석**
 
-[![ECOS Daily Fetch](https://github.com/YOUR_USERNAME/ecos-macro-review/actions/workflows/ecos_daily.yml/badge.svg)](https://github.com/YOUR_USERNAME/ecos-macro-review/actions/workflows/ecos_daily.yml)
+[![ECOS Daily Fetch](https://github.com/LEEYOUNGJIN-GIT/ecos-macro-review/actions/workflows/ecos_daily.yml/badge.svg)](https://github.com/LEEYOUNGJIN-GIT/ecos-macro-review/actions/workflows/ecos_daily.yml)
 
 ---
 
@@ -24,7 +24,7 @@
                       ▼                                       ▼
             ┌──────────────────┐                   ┌──────────────────┐
             │ ecos_signals.py  │                   │ ecos_regime.py   │
-            │ 9개 파생 신호     │                   │ 성장·인플레 점수  │
+            │ 10개 파생 신호    │                   │ 성장·인플레 점수  │
             │ 종합 위험도       │                   │ 2×2 레짐 분류    │
             └────────┬─────────┘                   └────────┬─────────┘
                      │                                      │
@@ -50,7 +50,7 @@ ecos-macro-review/
 │   └── workflows/
 │       └── ecos_daily.yml              ← GitHub Actions (매일 KST 08:30)
 ├── scripts/
-│   ├── ecos_signals.py                 ← 9개 파생 신호 대시보드
+    │   ├── ecos_signals.py                 ← 10개 파생 신호 대시보드
 │   └── ecos_regime.py                  ← 2×2 레짐 분류 엔진
 ├── data/
 │   ├── .gitkeep
@@ -68,26 +68,28 @@ ecos-macro-review/
 
 ---
 
-## 📊 수집 지표 (30개, 8개 카테고리)
+## 📊 수집 지표 (31개, 8개 카테고리)
 
 | # | 카테고리 | 지표 수 | 주요 지표 |
 |---|---------|--------|---------|
 | 01 | 금리·채권 | 6 | 기준금리, 국고채3Y/10Y, CD91일, 회사채AA-/BBB- |
-| 02 | 물가·인플레 | 4 | CPI, 근원CPI, PPI, 수입물가 |
-| 03 | GDP·경기 | 4 | 실질GDP(QoQ/YoY), 경기동행지수, 경기선행지수 |
+| 02 | 물가·인플레 | 4 | CPI, 근원CPI, PPI, 수입물가지수(403Y005/B) |
+| 03 | GDP·경기·생산 | 5 | 실질GDP(QoQ/YoY), 경기동행지수, 경기선행지수, 광공업생산 YoY |
 | 04 | 노동시장 | 4 | 실업률, 취업자수증감, 경제활동참가율, 고용률 |
 | 05 | 통화·유동성 | 2 | 본원통화, 기업대출 |
 | 06 | 주택시장 | 4 | 주택매매거래금액, 임대거래금액, 아파트매매금액, 착공지수 |
-| 07 | 수출입·무역 | 2 | 수출물량 YoY, 수입물량 YoY |
+| 07 | 수출입·무역 | 2 | 수출금액 YoY, 수입금액 YoY (금액지수, 403Y003/403Y001) |
 | 08 | 금융시장 | 4 | KOSPI, KOSDAQ, CD-기준금리 스프레드, 크레딧스프레드 |
 
-> **소거된 시리즈**: BSI_ALL(512Y014) · CSI(511Y004) · RETAIL_SALES_YOY(402Y015) — ECOS API 데이터 부재 확인
+> **소거된 시리즈**: BSI_ALL(512Y014) · CSI(511Y004) · RETAIL_SALES_YOY(402Y015) — ECOS API 데이터 부재 확인  
+> **수출입 시리즈 참고**: 403Y003/403Y001은 금액지수(가격×물량 복합)이며 물량지수와 다름  
+> **KOSPI 데이터**: ECOS 802Y001 일별 시리즈, 구조적 특성상 약 4-5개월 지연 게재
 
 ---
 
-## 📡 신호 대시보드 (9개)
+## 📡 신호 대시보드 (10개)
 
-`scripts/ecos_signals.py`가 생성하는 9개 파생 신호:
+`scripts/ecos_signals.py`가 생성하는 10개 파생 신호:
 
 | ID | 신호 | 주요 입력 | 임계 기준 |
 |----|-----|---------|---------|
@@ -97,10 +99,12 @@ ecos-macro-review/
 | SIG05 | 노동시장 종합 | 실업률, 취업자증감, 고용률 | 실업률 ≥4.5 위험 |
 | SIG07 | 신용 스트레스 | 회사채BBB-국채3Y, CD-기준금리 | 크레딧 스프레드 ≥2.0 경계 |
 | SIG08 | 경기 사이클 | 경기동행지수, 선행지수 순환변동 | <98 경기 하강 / <96 침체 신호 |
-| SIG10 | 수출 모멘텀 | 수출물량 YoY, 수입물량 YoY | 수출 YoY <-10% 위험 |
+| SIG09 | 산업생산 모멘텀 | 광공업생산지수 YoY (401Y015/원계열) | YoY <-5% 경계 / <-10% 위험 |
+| SIG10 | 수출 모멘텀 | 수출금액 YoY, 수입금액 YoY | 수출 YoY <-10% 위험 |
 | SIG11 | 주택시장 | 착공지수 (거래금액 참고) | 착공 <80 공급 급감 |
-| SIG12 | KOSPI 레짐 | KOSPI 지수 수준 | KOSPI <2000 약세장 |
+| SIG12 | KOSPI 레짐 | KOSPI 지수 수준 | KOSPI <4000 하락 경계 / <3000 약세장 (2026년 기준) |
 
+> **미구현 신호**: SIG04 기대인플레 디앵커링 (ECOS 미수록, BOK 서베이 비공개)  
 > **소거된 신호**: SIG06 소비자심리 — CSI·RETAIL_SALES_YOY 모두 API 데이터 부재
 
 **종합 위험도**: 70%×평균 + 30%×최대 → 5단계 (🟢안정 → 🔴위험)
@@ -130,8 +134,8 @@ ecos-macro-review/
 | ⚠️ Stagflation | ≤5 | >5 | 정책 딜레마, 방어적 포지셔닝 |
 | ❄️ Recession Risk | ≤5 | ≤5 | 부양 기대, 안전자산 선호 |
 
-**성장 점수** (5요소): 실질GDP, 고용률, 경기동행/선행지수, KOSPI  
-**인플레 점수** (5요소): CPI, 근원CPI, PPI, 수입물가, 취업자증감(임금 대용)
+**성장 점수** (6요소): 실질GDP, 고용률, 경기동행/선행지수, KOSPI, 광공업생산 YoY  
+**인플레 점수** (5요소): CPI, 근원CPI, PPI, 수입물가지수(403Y005/B), 취업자증감(임금 대용)
 
 ---
 
@@ -185,8 +189,8 @@ python scripts/ecos_regime.py
 1. claude.ai → Settings → Integrations → **GitHub** 연결
 2. `YOUR_USERNAME/ecos-macro-review` 레포 선택
 3. 대화 시작 시 `data/` 폴더의 4개 파일 자동 참조:
-   - `ecos_latest.md` — 30개 원천 팩트 테이블
-   - `ecos_signals.md` — 9개 신호 대시보드 (SIG01~03·05·07~08·10~12)
+   - `ecos_latest.md` — 31개 원천 팩트 테이블
+   - `ecos_signals.md` — 10개 신호 대시보드 (SIG01~03·05·07~12, SIG04·06 제외)
    - `ecos_regime.md` — 레짐 분류 보고서
    - `ecos_latest.csv` — 상세 데이터 (필요 시)
 
@@ -209,7 +213,7 @@ python scripts/ecos_regime.py
 | 항목 | 값 |
 |-----|---|
 | 실행 주기 | 매일 KST 08:30 (UTC 23:30) |
-| API 호출 수 | ~32회 (지표당 1회, 0.3초 간격) |
+| API 호출 수 | ~34회 (지표당 1회, 0.3초 간격) |
 | API 한도 | 월 10,000건 (개인 무료) |
 | 금일 데이터 포함 여부 | ECOS 발표 시점 의존 (D: 당일, M: 전월, Q: 전분기) |
 | 히스토리 보관 | data/ecos_history/ 에 일별 CSV 자동 저장 |
