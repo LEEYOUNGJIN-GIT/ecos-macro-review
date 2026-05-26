@@ -3,6 +3,11 @@ scripts/ecos_signals.py
 data/ecos_latest.csv 를 읽어 10개 파생 신호와 종합 위험도를 계산하고
 data/ecos_signals.md 를 생성합니다.
 
+v2.2 수정 사항:
+  SIG02 실질금리 갭: CORE_CPI_YOY 데이터 정정(신선어개→근원CPI)으로 자동 개선
+  SIG03 인플레이션 레짐: CORE_CPI_YOY 정정으로 자동 개선
+  SIG11 주택시장: 잘못된 무역 데이터(901Y092) 제거, KB주택가격지수(YoY) 기반으로 재설계
+
 소거된 신호:
   SIG04 기대인플레 디앵커링 — ECOS 기대인플레 시리즈 미수록 (BOK 서베이 데이터 비공개)
   SIG06 소비자심리 — CSI(511Y004), RETAIL_SALES_YOY(402Y015) 모두 API 데이터 부재
@@ -223,29 +228,29 @@ def sig_10_trade(d: dict) -> dict:
 
 
 def sig_11_housing_market(d: dict) -> dict:
-    """11. 주택시장 — 착공지수(HOUSING_START) 기반 점수.
+    """11. 주택시장 (KB주택매매가격지수 YoY, KB전세가격지수 YoY, 착공지수 복합)
 
-    HOUSE_PRICE_BUY/RENT/APT는 거래금액(백만원, 누계 여부 미확인)으로
-    가격지수 임계값(85~120) 적용 불가 → 점수 산정에서 제외하고 참고값으로만 표시.
-    착공지수 100=기준: 값이 높을수록 공급 활발 → 가격 압력 낮음 → 낮은 점수.
+    KB주택매매가격지수(2022.01=100) 및 KB전세가격지수 YoY를 주가격 신호로 사용.
+    착공지수는 공급 압력 보조 지표로 사용.
+    세 지표의 단순 평균을 최종 점수로 산출.
     """
-    buy = g(d, "HOUSE_PRICE_BUY")
-    rent = g(d, "HOUSE_PRICE_RENT")
-    apt = g(d, "APT_PRICE_BUY")
+    kb_buy = g(d, "KB_HOUSE_YOY")
+    kb_jeonse = g(d, "KB_JEONSE_YOY")
     start = g(d, "HOUSING_START")
-    # 착공지수만 점수에 사용: 60→위험(공급부족), 140→안전(공급 충분)
+    # KB매매가격 YoY: -5% → 안전(0점), +15% → 과열(10점)
+    s_buy = score_0_10(kb_buy, -5.0, 15.0) if kb_buy is not None else None
+    # KB전세가격 YoY: -5% → 안전(0점), +15% → 과열(10점)
+    s_jeonse = score_0_10(kb_jeonse, -5.0, 15.0) if kb_jeonse is not None else None
+    # 착공지수: 60→위험(공급부족, 10점), 140→안전(공급 충분, 0점)
     s_start = score_0_10(start, 60.0, 140.0, invert=True) if start is not None else None
-    score = s_start
-    buy_disp  = f"{fmt(buy, 0)}백만원"  if buy  is not None else "N/A"
-    rent_disp = f"{fmt(rent, 0)}백만원" if rent is not None else "N/A"
-    apt_disp  = f"{fmt(apt, 0)}백만원"  if apt  is not None else "N/A"
+    vals = [v for v in [s_buy, s_jeonse, s_start] if v is not None]
+    score = round(float(np.mean(vals)), 2) if vals else None
     return {
         "id": "SIG11", "name": "주택시장",
-        "value": start, "unit": "지수 (착공지수)",
-        "detail": (f"착공지수({fmt(start)}) | "
-                   f"매매거래금액({buy_disp}) / 임대({rent_disp}) / 아파트({apt_disp})"
-                   f" [거래금액=참고값, 점수 제외]"),
-        "threshold": "착공지수 <80 공급 급감·가격 압력 / >130 공급 과잉 안정",
+        "value": kb_buy, "unit": "% YoY (KB매매가격)",
+        "detail": (f"KB매매가격YoY({fmt(kb_buy)}%) / KB전세가격YoY({fmt(kb_jeonse)}%) / "
+                   f"착공지수({fmt(start)})"),
+        "threshold": "매매가격 YoY >10% 과열 / 착공지수 <80 공급 급감·가격 압박",
         "score": score,
     }
 
