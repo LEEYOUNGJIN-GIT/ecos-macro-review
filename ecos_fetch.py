@@ -111,7 +111,7 @@ SERIES = [
     # ── 05. 노동시장 ───────────────────────────────────────────────────────
     # 901Y027: 고용동향 (I38 계열 오류 → I61 계열 수정)
     ("UNEMPLOYMENT_RATE",   "901Y027", "M", "I61BC",   "%",    "실업률",                  None),  # I38A → I61BC
-    ("EMPLOYMENT_CHANGE",   "901Y027", "M", "I61BA",   "천명", "취업자수 전년비",          "yoy_diff"),  # I38B → I61BA(수준→증감)
+    ("EMPLOYMENT_CHANGE",   "901Y027", "M", "I61BA",   "천명", "취업자수 증감(전년동기차)",  "yoy_diff"),  # I38B → I61BA(수준→증감), yoy_diff=절대증감(천명) ≠ 퍼센트
     ("LABOR_PARTICIPATION", "901Y027", "M", "I61D",    "%",    "경제활동참가율",           None),  # I38H → I61D
     ("EMPLOYMENT_RATE",     "901Y027", "M", "I61E",    "%",    "고용률",                  None),  # I38G → I61E
 
@@ -500,11 +500,30 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
             val_str = f"{val:,.4f}".rstrip("0").rstrip(".") if val is not None else "N/A"
             # 값이 None(품질검사 탈락 등)이면 기준일도 N/A로 표시 (오해 방지)
             date_str = m["date"] if val is not None else "N/A"
-            # 수입금액 YoY 극단값(50%+) 경고 플래그: 관세충격·기저효과로 과대값 발생 가능
+            # 수입금액 YoY 극단값(30%+) 경고 플래그: 관세충격·기저효과로 과대값 발생 가능
             if k == "IMPORT_YOY" and val is not None and abs(val) >= 30:
                 val_str += " ⚠️기저효과"
+            # KOSPI/KOSDAQ: ECOS 구조적 지연(~6-7개월) 안내 — 실제 데이터이나 최신 시황 아님
+            if k in ("KOSPI", "KOSDAQ") and val is not None and date_str != "N/A":
+                try:
+                    from datetime import date as _date
+                    _obs = _date(int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8]))
+                    if (_date.today() - _obs).days > 90:
+                        val_str += " ℹ️ECOS구조지연"
+                except Exception:
+                    pass
             lines.append(f"| {k} | {m['label']} | {val_str} | {m['unit']} | {date_str} |")
         lines.append("")
+
+    lines += [
+        "---",
+        "",
+        "> **플래그 범례**",
+        "> - ⚠️기저효과: 수입금액 YoY ≥30%, 관세충격·기저효과로 과대값 가능",
+        "> - ℹ️ECOS구조지연: KOSPI/KOSDAQ는 ECOS 게재 특성상 ~6-7개월 지연 수록. "
+        "기준일 참고 필수, 현재 시황 반영 아님",
+        "",
+    ]
 
     path = DATA_DIR / "ecos_latest.md"
     path.write_text("\n".join(lines), encoding="utf-8")
