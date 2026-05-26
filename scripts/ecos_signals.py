@@ -16,9 +16,12 @@ v2.2 수정 사항:
 import sys
 from pathlib import Path
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import numpy as np
+
+_KST = ZoneInfo("Asia/Seoul")
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 INPUT_CSV = DATA_DIR / "ecos_latest.csv"
@@ -152,7 +155,7 @@ def sig_03_inflation_regime(d: dict) -> dict:
 
 
 def sig_05_labor_market(d: dict) -> dict:
-    """6. 노동시장 종합"""
+    """5. 노동시장 종합"""
     unemp = g(d, "UNEMPLOYMENT_RATE")
     emp_chg = g(d, "EMPLOYMENT_CHANGE")
     emp_rate = g(d, "EMPLOYMENT_RATE")
@@ -216,6 +219,7 @@ def sig_10_trade(d: dict) -> dict:
     exp_yoy = g(d, "EXPORT_YOY")
     imp_yoy = g(d, "IMPORT_YOY")
     # 수출 YoY: -15% → 위험, +10% → 안전
+    # imp_yoy는 detail 참고용으로만 표시; 관세충격·기저효과로 왜곡이 심해 점수 산정에서 제외
     s_exp = score_0_10(exp_yoy, -15.0, 10.0, invert=True) if exp_yoy is not None else None
     score = s_exp
     return {
@@ -396,7 +400,7 @@ def main() -> None:
     for s in signals:
         print(f"  {s['id']} {s['name']:<20} 점수: {fmt(s.get('score')):<6} {s['risk_label']}")
 
-    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    generated_at = datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")
     md = build_md(signals, generated_at)
     OUTPUT_MD.write_text(md, encoding="utf-8")
     print(f"\n  Saved: {OUTPUT_MD}")

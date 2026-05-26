@@ -30,9 +30,12 @@ v2.1 (2026-05-26):
 import sys
 from pathlib import Path
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import numpy as np
+
+_KST = ZoneInfo("Asia/Seoul")
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 INPUT_CSV = DATA_DIR / "ecos_latest.csv"
@@ -133,7 +136,7 @@ def compute_growth_score(data: dict) -> dict:
 
 # ---------------------------------------------------------------------------
 # 인플레이션 점수 (0-10, 높을수록 강한 인플레이션)
-# 7개 요소
+# 5개 요소
 # ---------------------------------------------------------------------------
 def compute_inflation_score(data: dict) -> dict:
     components = []
@@ -158,10 +161,12 @@ def compute_inflation_score(data: dict) -> dict:
     s, w = score_component(imp, -20.0, 40.0, weight=1.0)
     components.append(("IMPORT_PRICE_YOY", "수입물가 전년비", imp, "%", s, w))
 
-    # 5. 임금(취업자 증감으로 대용) (weight 1.0)
+    # 5. 취업자 증감 (weight 1.0)
+    # 임금 데이터가 ECOS에 없어 고용 증감으로 노동수요 압력을 간접 반영.
+    # 고용 증가 ≠ 임금 인플레이션이므로 해석 시 한계 유의.
     emp_chg = g(data, "EMPLOYMENT_CHANGE")
     s, w = score_component(emp_chg, -100.0, 500.0, weight=1.0)
-    components.append(("EMPLOYMENT_CHANGE", "취업자수 증감(임금압력 대용)", emp_chg, "천명", s, w))
+    components.append(("EMPLOYMENT_CHANGE", "취업자수 증감(노동수요 압력 대용)", emp_chg, "천명", s, w))
 
     pairs = [(c[4], c[5]) for c in components]
     total = weighted_mean(pairs)
@@ -339,7 +344,7 @@ def main() -> None:
     print(f"  시사점:         {regime['implication']}")
     print(f"  자산 배분 힌트: {regime['asset_hint']}")
 
-    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    generated_at = datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")
     md = build_md(growth, inflation, regime, generated_at)
     OUTPUT_MD.write_text(md, encoding="utf-8")
     print(f"\n  Saved: {OUTPUT_MD}")

@@ -53,13 +53,12 @@ ecos-macro-review/
     │   ├── ecos_signals.py                 ← 10개 파생 신호 대시보드
 │   └── ecos_regime.py                  ← 2×2 레짐 분류 엔진
 ├── data/
-│   ├── .gitkeep
 │   ├── ecos_latest.csv                 ← 최신 원천 데이터 (자동 생성)
 │   ├── ecos_latest.md                  ← Claude용 팩트 테이블 (자동 생성)
-│   ├── ecos_signals.md                 ← 9개 신호 보고서 (자동 생성)
+│   ├── ecos_signals.md                 ← 10개 신호 보고서 (자동 생성)
 │   ├── ecos_regime.md                  ← 레짐 분류 보고서 (자동 생성)
-│   └── ecos_history/
-│       └── ecos_YYYYMMDD_HHMMSS.csv    ← 일별 히스토리 (자동)
+│   └── ecos_history/                   ← 일별 히스토리 (.gitignore로 로컬/CI 전용)
+│       └── ecos_YYYYMMDD_HHMMSS.csv
 ├── ecos_fetch.py                       ← ECOS API 수집 + 팩트 테이블 생성
 ├── requirements.txt
 ├── .gitignore
@@ -201,7 +200,7 @@ python scripts/ecos_regime.py
 @ecos-macro-review 의 data/ecos_signals.md, data/ecos_regime.md, data/ecos_latest.md 를 읽고
 아래 분석을 수행해 주세요:
 
-1. 현재 매크로 레짐과 9개 신호의 핵심 시사점 요약
+1. 현재 매크로 레짐과 10개 신호의 핵심 시사점 요약 (SIG04·SIG06 제외)
 2. 전주 대비 가장 큰 변화를 보인 상위 3개 지표
 3. 향후 1~3개월 리스크 시나리오 (Bull / Base / Bear)
 4. 한국 투자자 관점의 시사점 (원화, 금리, 주식, 부동산)

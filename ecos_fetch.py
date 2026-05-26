@@ -35,11 +35,15 @@ data/ecos_latest.csv 및 data/ecos_latest.md 를 생성합니다.
 """
 
 import os
+import sys
 import time
 import requests
 import pandas as pd
 from datetime import datetime, date, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+_KST = ZoneInfo("Asia/Seoul")
 
 # ---------------------------------------------------------------------------
 # 환경 설정
@@ -194,12 +198,17 @@ def fetch_series(stat_code: str, period: str, item_code: str) -> list[dict]:
             resp = requests.get(url, timeout=15)
             resp.raise_for_status()
             body = resp.json()
-            # future-date 오류 감지
             if "RESULT" in body:
-                msg = body["RESULT"].get("MESSAGE", "")
+                code = body["RESULT"].get("CODE", "")
+                msg  = body["RESULT"].get("MESSAGE", "")
                 if "미래" in msg or "future" in msg.lower():
                     return None  # 재시도 신호
+                # API 키 오류·권한 오류·쿼터 초과 등 명시적 실패
+                if code and not str(code).startswith("200"):
+                    print(f"  [WARN] {stat_code}/{item_code}: ECOS 오류 [{code}] {msg}")
+                    return []
             if "StatisticSearch" not in body:
+                print(f"  [WARN] {stat_code}/{item_code}: 응답에 StatisticSearch 키 없음")
                 return []
             return body["StatisticSearch"].get("row", [])
         except Exception as exc:
@@ -397,7 +406,7 @@ def collect_all() -> pd.DataFrame:
         key, stat_code, period, item_code, unit, label = entry[:6]
         calc_type = entry[6] if len(entry) > 6 else None
 
-        is_derived = item_code in ("SPREAD", "CSPREAD", "DSR")
+        is_derived = item_code in ("SPREAD", "CSPREAD")
         if is_derived:
             records[key] = {"label": label, "value": None, "date": "N/A",
                             "unit": unit, "stat_code": stat_code, "period": period}
@@ -512,14 +521,15 @@ def main() -> None:
     print("=" * 60)
 
     if API_KEY == "sample":
-        print("[WARN] ECOS_API_KEY 환경변수가 설정되지 않았습니다.")
-        print("       .env 파일에 ECOS_API_KEY=<your_key> 를 추가하거나")
-        print("       환경변수로 설정해주세요.\n")
+        print("[ERROR] ECOS_API_KEY 환경변수가 설정되지 않았습니다.")
+        print("        .env 파일에 ECOS_API_KEY=<your_key> 를 추가하거나")
+        print("        환경변수로 설정해주세요.")
+        sys.exit(1)
 
     df = collect_all()
 
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    fetched_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ts = datetime.now(_KST).strftime("%Y%m%d_%H%M%S")
+    fetched_at = datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")
 
     save_csv(df, ts)
     save_md(df, fetched_at)

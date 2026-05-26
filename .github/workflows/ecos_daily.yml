@@ -14,6 +14,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 jobs:
   fetch-and-analyze:
     runs-on: ubuntu-latest
@@ -61,6 +65,6 @@ jobs:
             KST=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')
             git commit -m "data: auto-update ${KST}"
             # 동시 push 충돌 방지: rebase 후 push
-            git pull --rebase origin main
+            git pull --rebase origin "$GITHUB_REF_NAME"
             git push
           fi
