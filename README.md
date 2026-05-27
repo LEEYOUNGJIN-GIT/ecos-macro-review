@@ -145,7 +145,7 @@ ecos-macro-review/
 
 ## 자동화 워크플로
 
-매일 KST 08:30 실행 (`ecos_daily.yml`):
+매일 KST 06:10 실행 (`ecos_daily.yml`):
 
 ```
 Step 1a: ecos_fetch.py     (ECOS_API_KEY)   → data/ecos_latest.csv/.md
