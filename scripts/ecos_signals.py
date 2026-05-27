@@ -3,6 +3,11 @@ scripts/ecos_signals.py
 data/macro_latest.csv 를 읽어 10개 파생 신호와 종합 위험도를 계산하고
 data/ecos_signals.md 를 생성합니다.
 
+v3.1 (2026-05-27): 근원CPI·신호 산식 개선
+  - SIG02 실질금리 갭 정규화 (-2,3)→(-4,4) — 깊은 음의 실질금리 클리핑 완화
+  - SIG06 내수·소비: 소매+서비스 복합값·복합 전기비 표시
+  - SIG12 KOSPI 정규화 상한 8000→10000 (2026년 지수 수준 반영)
+
 v3.0 (2026-05-27): ECOS+KOSIS 통합 플랜 v1
   - INPUT_CSV: ecos_latest.csv → macro_latest.csv
   - SIG06 내수·소비 신규 구현 (KOSIS_RETAIL_YOY + KOSIS_SERVICE_PROD_YOY)
@@ -181,7 +186,7 @@ def sig_02_real_rate_gap(d: dict) -> dict:
     base = g(d, "BOK_BASE_RATE")
     core = g(d, "KOSIS_CORE_CPI_YOY")
     gap  = round(base - core, 4) if (base is not None and core is not None) else None
-    score = score_0_10(gap, -2.0, 3.0)
+    score = score_0_10(gap, -4.0, 4.0)
     base_chg = g(d, "BOK_BASE_RATE__chg_prev")
     core_chg = g(d, "KOSIS_CORE_CPI_YOY__chg_prev")
     chg_prev = round(base_chg - core_chg, 4) if (base_chg is not None and core_chg is not None) else None
@@ -246,20 +251,24 @@ def sig_06_domestic_demand(d: dict) -> dict:
     """6. 내수·소비 (소매판매 YoY + 서비스업생산 YoY, KOSIS)"""
     retail = g(d, "KOSIS_RETAIL_YOY")
     svc    = g(d, "KOSIS_SERVICE_PROD_YOY")
+    vals   = [v for v in [retail, svc] if v is not None]
+    composite = round(float(np.mean(vals)), 2) if vals else None
     # 점수: 높은 성장(호조)이 낮은 점수 → invert=True (위험 점수 체계)
     s_ret = score_0_10(retail, -5.0, 15.0, invert=True) if retail is not None else None
     s_svc = score_0_10(svc,    -5.0, 15.0, invert=True) if svc    is not None else None
-    vals  = [v for v in [s_ret, s_svc] if v is not None]
-    score = round(float(np.mean(vals)), 2) if vals else None
-    chg_prev = g(d, "KOSIS_RETAIL_YOY__chg_prev")
+    svals = [v for v in [s_ret, s_svc] if v is not None]
+    score = round(float(np.mean(svals)), 2) if svals else None
+    chg_vals = [v for v in [g(d, "KOSIS_RETAIL_YOY__chg_prev"),
+                             g(d, "KOSIS_SERVICE_PROD_YOY__chg_prev")] if v is not None]
+    chg_prev = round(float(np.mean(chg_vals)), 4) if chg_vals else None
     return {
         "id": "SIG06", "name": "내수·소비",
-        "value": retail, "unit": "% YoY (소매판매)",
+        "value": composite, "unit": "% YoY (소매·서비스 복합)",
         "date": gdate(d, "KOSIS_RETAIL_YOY"),
         "chg_prev": chg_prev, "chg_unit": "%p",
         "detail": (f"소매판매YoY({fmt(retail)}%) / 서비스업생산YoY({fmt(svc)}%) "
-                   "[통계청 KOSIS, 익월 말 발표]"),
-        "threshold": "소매판매 YoY <-2% 경계 / <-5% 위험 / 서비스 동반 부진 시 복합 신호",
+                   f"→ 복합 {fmt(composite)}% [통계청 KOSIS, 익월 말 발표]"),
+        "threshold": "복합 YoY <-2% 경계 / <-5% 위험 / 서비스 동반 부진 시 복합 신호",
         "score": score,
     }
 
@@ -349,7 +358,7 @@ def sig_11_housing_market(d: dict) -> dict:
 def sig_12_kospi_regime(d: dict) -> dict:
     """12. KOSPI 레짐 (SIG12 전용 — 레짐 성장 점수 제외)"""
     kospi  = g(d, "KOSPI")
-    score  = score_0_10(kospi, 3000.0, 8000.0, invert=True) if kospi is not None else None
+    score  = score_0_10(kospi, 3000.0, 10000.0, invert=True) if kospi is not None else None
     chg_prev = g(d, "KOSPI__chg_prev")
     return {
         "id": "SIG12", "name": "KOSPI 레짐",

@@ -333,17 +333,33 @@ def _compute_derived(records: dict) -> dict:
             return None
         return round(av - bv, 4)
 
+    def _copy_comparisons(target_key: str, a_key: str, b_key: str, date_key: str) -> None:
+        """파생 스프레드의 전기/중기/YoY 비교값을 구성요소 차이로 계산."""
+        if target_key not in records:
+            return
+        meta = records[target_key]
+        for field in ("prev_val", "mid_val", "yoy_val"):
+            meta[field] = safe_diff_field(records, a_key, b_key, field)
+        meta["date"] = records.get(date_key, {}).get("date", "N/A")
+
+    def safe_diff_field(recs: dict, a_key: str, b_key: str, field: str) -> float | None:
+        av = recs.get(a_key, {}).get(field)
+        bv = recs.get(b_key, {}).get(field)
+        if av is None or bv is None:
+            return None
+        return round(av - bv, 4)
+
     # CD-기준금리 스프레드
     cd_bok = safe_diff("CD_91D", "BOK_BASE_RATE")
     if "CD_BOK_SPREAD" in records:
         records["CD_BOK_SPREAD"]["value"] = cd_bok
-        records["CD_BOK_SPREAD"]["date"] = records.get("CD_91D", {}).get("date", "N/A")
+        _copy_comparisons("CD_BOK_SPREAD", "CD_91D", "BOK_BASE_RATE", "CD_91D")
 
     # 회사채 BBB- vs 국고채 3Y 스프레드
     cspread = safe_diff("CORP_BOND_BBB_MINUS", "GOV_BOND_3Y")
     if "CREDIT_SPREAD" in records:
         records["CREDIT_SPREAD"]["value"] = cspread
-        records["CREDIT_SPREAD"]["date"] = records.get("CORP_BOND_BBB_MINUS", {}).get("date", "N/A")
+        _copy_comparisons("CREDIT_SPREAD", "CORP_BOND_BBB_MINUS", "GOV_BOND_3Y", "CORP_BOND_BBB_MINUS")
 
     return records
 
@@ -722,8 +738,8 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
             mid_str  = fmt_chg(chg_mid)  if val is not None else "-"
             yoy_str  = fmt_chg(chg_yoy)  if val is not None else "-"
 
-            # 수입금액 YoY 극단값(30%+) 경고 플래그
-            if k == "IMPORT_PRICE_YOY" and val is not None and abs(val) >= 30:
+            # 수입물가 YoY 극단값(25%+) 경고 플래그
+            if k == "IMPORT_PRICE_YOY" and val is not None and abs(val) >= 25:
                 val_str += " ⚠️기저효과"
             # KOSPI/KOSDAQ: ECOS 구조적 지연(~6-7개월) 안내
             if k in ("KOSPI", "KOSDAQ") and val is not None and raw_date != "N/A":
@@ -745,7 +761,7 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
         "---",
         "",
         "> **플래그 범례**",
-        "> - ⚠️기저효과: 수입물가 YoY ≥30%, 관세충격·기저효과로 과대값 가능",
+        "> - ⚠️기저효과: 수입물가 YoY ≥25%, 관세충격·기저효과로 과대값 가능",
         "> - ℹ️ECOS구조지연: KOSPI/KOSDAQ는 ECOS 게재 특성상 ~6-7개월 지연 수록. "
         "기준일 참고 필수, 현재 시황 반영 아님",
         "",

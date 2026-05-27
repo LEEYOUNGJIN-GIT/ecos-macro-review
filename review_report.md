@@ -1,9 +1,21 @@
 # 거시경제 지표 검토 보고서
 
-**작성일**: 2026-05-26  
+**작성일**: 2026-05-27 (v3.1 갱신)  
 **대상 저장소**:
-- [ecos-macro-review](https://github.com/LEEYOUNGJIN-GIT/ecos-macro-review) — 한국은행 ECOS 기반
-- [fred-macro-review](https://github.com/LEEYOUNGJIN-GIT/fred-macro-review) — FRED 기반
+- [ecos-macro-review](https://github.com/LEEYOUNGJIN-GIT/ecos-macro-review) — ECOS + KOSIS 통합
+
+---
+
+## v3.1 수정 완료 (2026-05-27)
+
+| # | 항목 | 수정 내용 | 상태 |
+|---|------|---------|------|
+| 1 | KOSIS 근원CPI 6.31% 오류 | `objL1` QC→T10, CPI·근원CPI 교차검증(1.5%p) | ✅ |
+| 2 | 수입물가 28% 인플레 왜곡 | ±15% winsorize + 극단값 가중치 0.5 | ✅ |
+| 3 | 인플레 5번째 소매판매 YoY | 성장 축으로 이동 (수요≠물가) | ✅ |
+| 4 | 파생 스프레드 chg_prev | CD·크레딧 스프레드 모멘텀 계산 | ✅ |
+| 5 | SIG02·SIG06·SIG12 | 실질금리 클리핑, 내수 복합값, KOSPI 상한 10000 | ✅ |
+| 6 | macro 품질 검증 | `scripts/validate_macro.py` + CI 연동 | ✅ |
 
 ---
 

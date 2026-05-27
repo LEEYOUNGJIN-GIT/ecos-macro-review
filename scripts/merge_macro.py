@@ -7,6 +7,10 @@ ecos_latest.csv + kosis_latest.csv 를 병합하여 data/macro_latest.csv 를 �
   2. source 컬럼 추가 ('ecos' / 'kosis')
   3. 기준일 이질성 경고: 2개월 이상 지연 지표에 [WARN] 로그 출력
 
+v1.1 (2026-05-27): CPI·근원CPI 교차검증, 수입물가 극단값 경고
+  - _validate_cpi_cross(): |근원CPI−CPI| > 1.5%p 시 [WARN]
+  - _flag_extreme_import(): IMPORT_PRICE_YOY ≥25% 경고
+
 v1.0 (2026-05-27): ECOS+KOSIS 통합 플랜 v1 구현
 """
 
@@ -23,6 +27,9 @@ DATA_DIR   = Path(__file__).parent.parent / "data"
 ECOS_CSV   = DATA_DIR / "ecos_latest.csv"
 KOSIS_CSV  = DATA_DIR / "kosis_latest.csv"
 OUTPUT_CSV = DATA_DIR / "macro_latest.csv"
+
+CORE_CPI_MAX_GAP   = 1.5   # %p
+IMPORT_PRICE_WARN  = 25.0  # % YoY
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +57,34 @@ def _check_staleness(df: pd.DataFrame) -> None:
         print(f"  [WARN] 2개월+ 지연 지표 ({len(warned)}개): {', '.join(warned)}")
     else:
         print("  [INFO] 모든 지표 기준일 2개월 이내 — 정상")
+
+
+def _validate_cpi_cross(df: pd.DataFrame) -> None:
+    """헤드라인 CPI vs 근원CPI YoY 괴리 검사."""
+    cpi_rows  = df.loc[df["series_id"] == "KOSIS_CPI_YOY", "value"]
+    core_rows = df.loc[df["series_id"] == "KOSIS_CORE_CPI_YOY", "value"]
+    if cpi_rows.empty or core_rows.empty:
+        return
+    cpi  = float(cpi_rows.iloc[0])
+    core = float(core_rows.iloc[0])
+    gap  = abs(core - cpi)
+    if gap > CORE_CPI_MAX_GAP:
+        print(
+            f"  [WARN] CPI({cpi}%) vs 근원CPI({core}%) gap {gap:.2f}%p "
+            f"> {CORE_CPI_MAX_GAP} - KOSIS_CORE_CPI_YOY 파라미터 확인"
+        )
+    else:
+        print(f"  [INFO] CPI·근원CPI gap {gap:.2f}%p - 정상")
+
+
+def _flag_extreme_import(df: pd.DataFrame) -> None:
+    """수입물가 YoY 극단값 경고."""
+    rows = df.loc[df["series_id"] == "IMPORT_PRICE_YOY", "value"]
+    if rows.empty:
+        return
+    val = float(rows.iloc[0])
+    if abs(val) >= IMPORT_PRICE_WARN:
+        print(f"  [WARN] IMPORT_PRICE_YOY={val}% - 기저효과·관세충격 가능")
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +121,8 @@ def merge() -> pd.DataFrame:
     print(f"  ECOS: {len(ecos_df)}개, KOSIS: {len(kosis_df)}개, 통합: {len(combined)}개")
 
     _check_staleness(combined)
+    _validate_cpi_cross(combined)
+    _flag_extreme_import(combined)
 
     return combined
 

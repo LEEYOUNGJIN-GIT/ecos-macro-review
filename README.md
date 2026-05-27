@@ -75,7 +75,7 @@
 | KOSIS_CLI_COINCIDENT | 동행지수 순환변동치 | 지수(100기준) | SIG08, 레짐성장(w=1.5) | 약 2개월 |
 | KOSIS_CLI_LEADING | 선행지수 순환변동치 | 지수(100기준) | SIG08, 레짐성장(w=1.5) | 약 2개월 |
 | KOSIS_INDPRO_YOY | 광공업생산지수 전년비 | % YoY | SIG09, 레짐성장(w=1.0) | 익월 말 |
-| KOSIS_RETAIL_YOY | 소매판매 전년동월비 | % YoY | SIG06, 레짐인플레(w=1.0) | 익월 말 |
+| KOSIS_RETAIL_YOY | 소매판매 전년동월비 | % YoY | SIG06, 레짐성장(w=1.0) | 익월 말 |
 | KOSIS_SERVICE_PROD_YOY | 서비스업생산지수 전년비 | % YoY | SIG06 | 익월 말 |
 
 > **KOSIS_CORE_CPI_YOY**: 통계청 농산물·석유류제외 지수(DT_1J22007). 구 ECOS QB·OECD방식(식품·에너지제외)과 정의 상이 — 수치 직접 비교 불가.
@@ -113,9 +113,9 @@
 | ⚠️ Stagflation | 약함(≤5) | 높음(>5) |
 | ❄️ Recession Risk | 약함(≤5) | 낮음(≤5) |
 
-**성장 5요소**: GDP_GROWTH_YOY(w=2.0), KOSIS_EMP_RATE(w=1.0), KOSIS_CLI_COINCIDENT(w=1.5), KOSIS_CLI_LEADING(w=1.5), KOSIS_INDPRO_YOY(w=1.0)
+**성장 6요소**: GDP_GROWTH_YOY(w=2.0), KOSIS_EMP_RATE(w=1.0), KOSIS_CLI_COINCIDENT(w=1.5), KOSIS_CLI_LEADING(w=1.5), KOSIS_INDPRO_YOY(w=1.0), KOSIS_RETAIL_YOY(w=1.0)
 
-**인플레 5요소**: KOSIS_CPI_YOY(w=2.0), KOSIS_CORE_CPI_YOY(w=2.0), PPI_YOY(w=1.5), IMPORT_PRICE_YOY(w=1.0), KOSIS_RETAIL_YOY(w=1.0)
+**인플레 4요소**: KOSIS_CPI_YOY(w=2.0), KOSIS_CORE_CPI_YOY(w=2.0), PPI_YOY(w=1.5), IMPORT_PRICE_YOY(w=1.0, ±15% winsorize)
 
 ---
 

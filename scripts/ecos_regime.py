@@ -3,6 +3,11 @@ scripts/ecos_regime.py
 data/macro_latest.csv 를 읽어 성장·인플레이션 점수를 계산하고
 2×2 매크로 레짐을 분류한 뒤 data/ecos_regime.md 를 생성합니다.
 
+v3.1 (2026-05-27): 근원CPI·수입물가·인플레 구성 개선
+  - 인플레 5번째: KOSIS_RETAIL_YOY 제거 → 성장 축으로 이동 (수요≠물가)
+  - 성장 6번째: KOSIS_RETAIL_YOY(w=1.0) 추가 (내수 수요)
+  - IMPORT_PRICE_YOY winsorize ±15% + 극단값 가중치 0.5
+
 v3.0 (2026-05-27): ECOS+KOSIS 통합 플랜 v1
   - INPUT_CSV: ecos_latest.csv → macro_latest.csv
   - 성장 점수: 6개→5개 요소, KOSPI 제거
@@ -53,6 +58,10 @@ OUTPUT_MD  = DATA_DIR / "ecos_regime.md"
 
 GROWTH_THRESHOLD    = 5.0
 INFLATION_THRESHOLD = 5.0
+
+IMPORT_PRICE_WINSOR = (-15.0, 15.0)   # % YoY — 기저효과·관세충격 클리핑
+IMPORT_EXTREME_ABS  = 15.0            # winsorize 적용 임계
+IMPORT_EXTREME_WEIGHT = 0.5           # 극단값 시 가중치 축소
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +192,14 @@ def compute_growth_score(data: dict) -> dict:
                         g(data, "KOSIS_INDPRO_YOY__chg_yoy"),
                         s, w, gdate(data, "KOSIS_INDPRO_YOY")))
 
+    # 6. 소매판매 YoY (weight 1.0) — KOSIS 통계청, 내수 수요 (구 인플레 5번째에서 이동)
+    retail = g(data, "KOSIS_RETAIL_YOY")
+    s, w = score_component(retail, -5.0, 15.0, weight=1.0)
+    components.append(("KOSIS_RETAIL_YOY", "소매판매 전년비(내수)", retail, "%",
+                        g(data, "KOSIS_RETAIL_YOY__chg_prev"),
+                        g(data, "KOSIS_RETAIL_YOY__chg_yoy"),
+                        s, w, gdate(data, "KOSIS_RETAIL_YOY")))
+
     # KOSPI 제거 이유: ECOS 구조 지연 ~7개월 + 시장 선행지표 성격
     # → SIG12 에서 별도 모니터링
 
@@ -225,22 +242,19 @@ def compute_inflation_score(data: dict) -> dict:
                         g(data, "PPI_YOY__chg_yoy"),
                         s, w, gdate(data, "PPI_YOY")))
 
-    # 4. 수입물가 YoY (weight 1.0) — ECOS 403Y005/B 수입품물가지수
+    # 4. 수입물가 YoY (weight 1.0) — ECOS, winsorize ±15% (기저효과 왜곡 방지)
     imp = g(data, "IMPORT_PRICE_YOY")
-    s, w = score_component(imp, -20.0, 40.0, weight=1.0)
+    imp_w = 1.0
+    imp_score_val = imp
+    if imp is not None and abs(imp) > IMPORT_EXTREME_ABS:
+        lo, hi = IMPORT_PRICE_WINSOR
+        imp_score_val = max(lo, min(hi, imp))
+        imp_w = IMPORT_EXTREME_WEIGHT
+    s, w = score_component(imp_score_val, *IMPORT_PRICE_WINSOR, weight=imp_w)
     components.append(("IMPORT_PRICE_YOY", "수입물가 전년비", imp, "%",
                         g(data, "IMPORT_PRICE_YOY__chg_prev"),
                         g(data, "IMPORT_PRICE_YOY__chg_yoy"),
                         s, w, gdate(data, "IMPORT_PRICE_YOY")))
-
-    # 5. 소매판매 YoY (weight 1.0) — KOSIS 통계청
-    # 구 EMPLOYMENT_CHANGE(천명) 교체: 단위 이질성 해소, 모든 요소 % 단위 통일
-    retail = g(data, "KOSIS_RETAIL_YOY")
-    s, w   = score_component(retail, -5.0, 15.0, weight=1.0)
-    components.append(("KOSIS_RETAIL_YOY", "소매판매 전년비(내수 수요압력)", retail, "%",
-                        g(data, "KOSIS_RETAIL_YOY__chg_prev"),
-                        g(data, "KOSIS_RETAIL_YOY__chg_yoy"),
-                        s, w, gdate(data, "KOSIS_RETAIL_YOY")))
 
     pairs = [(c[6], c[7]) for c in components]
     total = weighted_mean(pairs)
@@ -366,10 +380,11 @@ def build_md(
         "",
         "---",
         "",
-        "## 성장 점수 상세 (가중평균, 5개 요소)",
+        "## 성장 점수 상세 (가중평균, 6개 요소)",
         "",
         "> 전기비·YoY비: % 지표는 YoY율 가속도(%p), 지수 지표는 절대 변화",
         "> KOSPI 제외: ECOS 구조 지연 ~7개월, SIG12 에서 별도 모니터링",
+        "> 6번째: 소매판매 YoY — 구 인플레 5번째에서 이동 (내수 수요)",
         "",
         "| 지표 | 값 | 단위 | 기준일 | 전기비 | YoY비 | 성장 점수 기여 (0-10) | 가중치 |",
         "|-----|---|-----|------|------|------|---------------------|------|",
@@ -387,10 +402,10 @@ def build_md(
         "",
         "---",
         "",
-        "## 인플레이션 점수 상세 (가중평균, 5개 요소)",
+        "## 인플레이션 점수 상세 (가중평균, 4개 요소)",
         "",
         "> 전기비·YoY비: % 지표는 YoY율 가속도(%p)",
-        "> 5번째 요소: 소매판매 YoY — 구 취업자수 증감(천명) 교체로 단위 통일",
+        "> 수입물가: ±15% winsorize, |YoY|>15% 시 가중치 0.5 (기저효과·관세충격)",
         "",
         "| 지표 | 값 | 단위 | 기준일 | 전기비 | YoY비 | 인플레 점수 기여 (0-10) | 가중치 |",
         "|-----|---|-----|------|------|------|----------------------|------|",

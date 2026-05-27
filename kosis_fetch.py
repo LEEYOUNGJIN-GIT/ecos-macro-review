@@ -20,9 +20,14 @@ KOSIS API 키 발급: https://kosis.kr/openapi/
   - KOSIS_SERIES 튜플에 c1_filter(11번째) 추가: 동일 tblId 내 C1 코드로 지표 구분 시 사용
   - CPI/근원CPI/고용/경기지수 tblId·itmId·objL1 검증값으로 교체
     · CPI: DT_1J22003 / objL1=T10 / itmId=T (지수→yoy_pct)
-    · 근원CPI: DT_1J22007(농산물석유류제외) / objL1=QC / itmId=T (지수→yoy_pct)
+    · 근원CPI: DT_1J22007(농산물석유류제외) / objL1=T10 / itmId=T (지수→yoy_pct)
     · 고용: DT_1DA7002S / objL1=00 / itmId T80/T90/T60/T30 검증
     · 경기지수 순환변동치: DT_1C8016→DT_1C8015 교체, c1_filter B03/A03 추가
+  v1.3 (2026-05-27): 근원CPI objL1 수정 및 교차검증
+  - KOSIS_CORE_CPI_YOY: objL1 QC→T10 (DT_1J22007 전국 총지수, CPI와 동일 지역코드)
+    · QC는 DT_1J22003 내 분류코드로 DT_1J22007 전용 테이블에 부적합 → YoY 6.31% 오류 원인
+  - _validate_core_cpi(): |근원CPI−CPI| > 1.5%p 시 None 처리
+  - validate_tblids(): CPI·근원CPI YoY 교차검증 추가
   v1.2 (2026-05-27): 생산·소비 tblId 확정, 수출입 3종 제거
   - 광공업: DT_1F02011 / itmId=T10 / c1_filter=10 (yoy_pct)
   - 소매: DT_1K41012 / itmId=T2 / c1_filter=G0 (yoy_pct)
@@ -88,9 +93,9 @@ KOSIS_SERIES = [
      "%",     "소비자물가 전년동월비",              "yoy_pct",  "익월 7일",  None),
 
     # DT_1J22007: 농산물및석유류제외지수(2020=100) - 통계청(101)
-    # objL1=QC(농산물·석유류제외 전국), itmId=T(총지수) → yoy_pct ✅ v1.1 검증완료
+    # objL1=T10(전국) — CPI(DT_1J22003)와 동일 지역코드. QC는 구 DT_1J22003 분류코드로 오류 유발
     # ※ 한국 공식 근원CPI(농산물·석유류제외) 기준 — OECD방식(식품·에너지제외)과 상이
-    ("KOSIS_CORE_CPI_YOY",   "101", "DT_1J22007", "T",   "QC",  "M",
+    ("KOSIS_CORE_CPI_YOY",   "101", "DT_1J22007", "T",   "T10", "M",
      "%",     "근원물가 전년동월비(농산물·석유류제외)", "yoy_pct",  "익월 7일",  None),
 
     # ── 02. 고용 ─────────────────────────────────────────────────────────
@@ -173,6 +178,9 @@ CATEGORY_MAP = {
 }
 
 RELEASE_LAG_MAP: dict[str, str] = {s[0]: s[9] for s in KOSIS_SERIES}
+
+# 헤드라인 CPI 대비 근원CPI YoY 허용 괴리 (%p)
+CORE_CPI_MAX_GAP = 1.5
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +361,26 @@ def _check_data_quality(records: dict) -> dict:
     return records
 
 
+def _validate_core_cpi(records: dict) -> dict:
+    """근원CPI YoY가 헤드라인 CPI와 비정상 괴리 시 None 처리."""
+    cpi_meta  = records.get("KOSIS_CPI_YOY")
+    core_meta = records.get("KOSIS_CORE_CPI_YOY")
+    if not cpi_meta or not core_meta:
+        return records
+    cpi  = cpi_meta.get("value")
+    core = core_meta.get("value")
+    if cpi is None or core is None:
+        return records
+    gap = abs(core - cpi)
+    if gap > CORE_CPI_MAX_GAP:
+        print(
+            f"  [WARN] KOSIS_CORE_CPI_YOY={core}% vs CPI={cpi}% "
+            f"(gap {gap:.2f}%p > {CORE_CPI_MAX_GAP}) -> None"
+        )
+        core_meta["value"] = None
+    return records
+
+
 # ---------------------------------------------------------------------------
 # tblId 검증 (최초 실행 시 권장)
 # ---------------------------------------------------------------------------
@@ -410,6 +438,30 @@ def validate_tblids() -> None:
             warn_count += 1
         time.sleep(0.3)
 
+    # CPI vs 근원CPI YoY 교차검증
+    print()
+    print("─" * 70)
+    print("CPI · 근원CPI YoY 교차검증")
+    cpi_entry  = next(e for e in KOSIS_SERIES if e[0] == "KOSIS_CPI_YOY")
+    core_entry = next(e for e in KOSIS_SERIES if e[0] == "KOSIS_CORE_CPI_YOY")
+    cpi_rows   = fetch_kosis_series(*cpi_entry[1:6])
+    core_rows  = fetch_kosis_series(*core_entry[1:6])
+    cpi_val,  _, _, _, _ = get_kosis_comparisons(cpi_rows,  "M", "yoy_pct", None)
+    core_val, _, _, _, _ = get_kosis_comparisons(core_rows, "M", "yoy_pct", None)
+    if cpi_val is not None and core_val is not None:
+        gap = abs(core_val - cpi_val)
+        if gap <= CORE_CPI_MAX_GAP:
+            print(f"  [OK]   CPI={cpi_val}% / Core={core_val}% (gap {gap:.2f}%p)")
+        else:
+            print(
+                f"  [WARN] CPI={cpi_val}% / Core={core_val}% (gap {gap:.2f}%p) "
+                f"— objL1·itmId 재확인 필요"
+            )
+            warn_count += 1
+    else:
+        print(f"  [WARN] CPI/Core YoY 계산 실패 (CPI={cpi_val}, Core={core_val})")
+        warn_count += 1
+
     print()
     print(f"검증 완료: {ok_count}개 OK / {warn_count}개 WARN/ERROR")
     if warn_count > 0:
@@ -452,6 +504,7 @@ def collect_all() -> pd.DataFrame:
         time.sleep(CALL_INTERVAL)
 
     records = _check_data_quality(records)
+    records = _validate_core_cpi(records)
 
     def _calc_chg(cur: float | None, comp: float | None) -> float | None:
         if cur is None or comp is None:
