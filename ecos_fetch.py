@@ -26,6 +26,16 @@ data/ecos_latest.csv 및 data/ecos_latest.md 를 생성합니다.
   - GDP 성장 점수 정규화 범위 조정: (-3.0, 6.0) → (-2.0, 8.0) in ecos_regime.py
     (2026Q1 실질GDP YoY 6.42%가 상한 6.0 초과로 매번 클리핑되던 문제 해소)
 
+  v2.5 (2026-05-27):
+  - 전기비/중기비/YoY비 비교 컬럼 추가 (fred_fetch.py 패턴 이식)
+      · COMPARE_PERIODS: 주기별 비교 인덱스 정의 (D/M/Q/A)
+      · get_ecos_comparisons(): 단일 함수로 cur/prev/mid/yoy 값 통합 추출
+      · collect_all(): prev_val/mid_val/yoy_val → chg_prev/chg_mid/chg_yoy 컬럼 추가
+      · save_md(): 팩트 테이블에 전기비·중기비·YoY비 컬럼 추가
+      · save_csv(): chg_prev/chg_mid/chg_yoy/note 컬럼 추가
+  - 기준일 포맷 개선: YYYYMM → YYYY-MM, YYYYMMDD → YYYY-MM-DD (MD 출력 전용)
+  - 지표별 해석 노트(SERIES_NOTES) 추가 (Claude 분석 컨텍스트 강화)
+
   v2.1 (2026-05-26):
   - KOSPI/KOSDAQ 일별 조회 시작일을 today-2년에서 today-280일로 변경
   - IMPORT_PRICE_YOY 시리즈 교체: 901Y013/A → 403Y005/B(수입물가지수 2020=100)
@@ -398,6 +408,180 @@ CALC_FUNCS = {
     "qoq_pct":  qoq_pct,
 }
 
+# ---------------------------------------------------------------------------
+# 비교 기간 설정 (전기비 / 중기비 / YoY비)
+# ---------------------------------------------------------------------------
+COMPARE_PERIODS = {
+    "D": {"prev": 1,  "mid": 20, "yoy": 252},  # 전일 / 4주(20영업일) / 1년
+    "M": {"prev": 1,  "mid": 3,  "yoy": 12},   # 전월 / 3개월 / 1년
+    "Q": {"prev": 1,  "mid": 2,  "yoy": 4},    # 전분기 / 2분기 / 1년
+    "A": {"prev": 1,  "mid": 2,  "yoy": 3},    # 전년 / 2년전 / 3년전
+}
+
+MID_LABELS = {"D": "4W전비", "M": "3M전비", "Q": "2Q전비", "A": "2Y전비"}
+
+# ---------------------------------------------------------------------------
+# 지표별 해석 노트 (Claude 분석 컨텍스트 강화)
+# ---------------------------------------------------------------------------
+SERIES_NOTES = {
+    "BOK_BASE_RATE":       "중립금리 2.5% 추정. 인하/인상 기조 전환 핵심 지표",
+    "GOV_BOND_3Y":         "단기 정책금리 기대 반영. 기준금리와 스프레드 확대 시 유동성 위험",
+    "GOV_BOND_10Y":        "글로벌 장기 기준금리. 5% 이상 시 재정·기업 부담 가중",
+    "CD_91D":              "단기 자금시장 유동성 지표. 기준금리 괴리 확대 시 경계",
+    "CORP_BOND_AA_MINUS":  "우량 기업 조달비용. 국채 대비 스프레드 확대 시 신용 위험 상승",
+    "CORP_BOND_BBB_MINUS": "투기등급 기업 조달비용. CREDIT_SPREAD와 함께 신용 리스크 점검",
+    "CPI_YOY":             "헤드라인 물가. 2% 목표 대비 3% 이상 시 목표 초과 구간",
+    "CORE_CPI_YOY":        "농산물·석유류 제외 기조 물가(한국 공식 근원CPI 기준, QB 항목코드)",
+    "PPI_YOY":             "기업 비용 압박 선행지표. CPI 3~6개월 선행 가능성",
+    "IMPORT_PRICE_YOY":    "수입 비용 충격. 환율·원자재 복합 영향. 급등 시 소비자물가 전가 경계",
+    "GDP_GROWTH_QOQ":      "전분기비 성장률. 2분기 연속 음수 시 기술적 침체",
+    "GDP_GROWTH_YOY":      "전년비 성장률. 잠재성장률(약 2%) 대비 위치 파악",
+    "CLI_COINCIDENT":      "경기동행지수 순환변동치. 100 상회 확장, 하회 수축",
+    "CLI_LEADING":         "경기선행지수 순환변동치. 6개월 선행 경기 방향 포착",
+    "INDPRO_YOY":          "광공업생산 전년비. 제조업 경기 민감 선행지표",
+    "UNEMPLOYMENT_RATE":   "실업률. 상승 지속 시 고용 둔화 경계",
+    "EMPLOYMENT_CHANGE":   "취업자수 전년동기 증감(천명). 0 이하 지속 시 고용 악화",
+    "LABOR_PARTICIPATION": "경제활동참가율. 상승=노동공급 확대, 하락=잠재성장 제약",
+    "EMPLOYMENT_RATE":     "고용률. 실업률과 교차 확인으로 고용 질 파악",
+    "M2_YOY":              "광의통화 전년비. 음수 시 디플레 우려, 10% 이상 시 과잉 유동성",
+    "BASE_MONEY":          "본원통화 잔액. 통화 공급 기초. YoY 감소 시 긴축 기조",
+    "BANK_LOANS":          "예금은행 총대출금. 증가=신용 확장, 감소=긴축 압력",
+    "KB_HOUSE_YOY":        "KB주택매매가격 전년비. 부동산 경기·자산효과 소비 연동",
+    "KB_JEONSE_YOY":       "전세가격 전년비. 주거비 부담 및 전세-매매 갭 모니터링",
+    "HOUSING_START":       "주택착공지수. 건설경기 선행. 금리 인상 후 6~12개월 후행",
+    "EXPORT_YOY":          "수출금액 전년비. 글로벌 수요·반도체 경기 반영",
+    "IMPORT_YOY":          "수입금액 전년비. 30% 이상 시 관세충격·기저효과 가능성",
+    "KOSPI":               "KOSPI 지수(ECOS 구조 지연 ~6-7개월). 추세·방향성 참고",
+    "KOSDAQ":              "KOSDAQ 지수(ECOS 구조 지연 ~6-7개월). 추세·방향성 참고",
+    "USD_KRW":             "원/달러 환율 월평균. 상승=원화 약세. 수입물가·외화부채 압박",
+    "CD_BOK_SPREAD":       "CD-기준금리 스프레드(파생). 단기 유동성 프리미엄 확대 시 경계",
+    "CREDIT_SPREAD":       "회사채BBB-국채3Y 스프레드(파생). 기업 신용 리스크 핵심 지표",
+}
+
+
+# ---------------------------------------------------------------------------
+# 포맷 헬퍼
+# ---------------------------------------------------------------------------
+def fmt_val(v: float | None) -> str:
+    """숫자를 가독성 있게 포맷."""
+    if v is None:
+        return "N/A"
+    av = abs(v)
+    if av >= 1_000_000:
+        return f"{v / 1_000_000:,.2f}M"
+    elif av >= 10_000:
+        return f"{v:,.0f}"
+    else:
+        return f"{v:,.4f}".rstrip("0").rstrip(".")
+
+
+def fmt_chg(chg: float | None) -> str:
+    """변화량을 부호 포함 문자열로 포맷."""
+    if chg is None:
+        return "-"
+    av = abs(chg)
+    if av >= 10_000:
+        return f"{chg:+,.0f}"
+    elif av >= 1:
+        return f"{chg:+.2f}"
+    else:
+        return f"{chg:+.4f}"
+
+
+def calc_chg(cur: float | None, comp: float | None) -> float | None:
+    """현재값과 비교값의 차이 계산."""
+    if cur is None or comp is None:
+        return None
+    return round(cur - comp, 4)
+
+
+def fmt_date(d: str) -> str:
+    """ECOS 날짜 형식 → 가독성 있는 형식 변환 (MD 출력 전용)."""
+    if not d or d == "N/A":
+        return "N/A"
+    d = str(d)
+    if len(d) == 6 and d.isdigit():    # YYYYMM → YYYY-MM
+        return f"{d[:4]}-{d[4:]}"
+    if len(d) == 8 and d.isdigit():    # YYYYMMDD → YYYY-MM-DD
+        return f"{d[:4]}-{d[4:6]}-{d[6:]}"
+    return d                           # YYYYQN 등은 그대로
+
+
+# ---------------------------------------------------------------------------
+# 통합 비교값 추출 (전기 / 중기 / YoY)
+# ---------------------------------------------------------------------------
+def get_ecos_comparisons(
+    rows: list[dict], period: str, calc_type: str | None
+) -> tuple[float | None, str, float | None, float | None, float | None]:
+    """rows에서 최신값 및 전기/중기/YoY 비교 대상값을 반환한다.
+
+    Returns:
+        (cur_val, obs_date, prev_val, mid_val, yoy_val)
+        · calc_type 변환 후 각 시점의 값을 반환
+        · 비교점 데이터 부족 시 해당 항목 None
+    """
+    valid: dict[str, float] = {}
+    for r in rows:
+        v = r.get("DATA_VALUE")
+        if v not in (None, "", " ", "-"):
+            valid[r["TIME"]] = float(v)
+
+    if not valid:
+        return None, "N/A", None, None, None
+
+    times = sorted(valid.keys())
+    n = len(times)
+    cp = COMPARE_PERIODS.get(period, COMPARE_PERIODS["M"])
+
+    def prev_year_key(t: str) -> str | None:
+        if len(t) == 6 and t.isdigit():    # YYYYMM
+            return f"{int(t[:4]) - 1}{t[4:]}"
+        if len(t) == 7 and "Q" in t:       # YYYYQN (예: 2026Q1)
+            return f"{int(t[:4]) - 1}{t[4:]}"
+        return None
+
+    def derived(idx: int) -> float | None:
+        """idx 위치 TIME에서 calc_type 변환 후 값 반환."""
+        if idx < 0 or idx >= n:
+            return None
+        t   = times[idx]
+        raw = valid[t]
+
+        if calc_type is None:
+            return raw
+        if calc_type == "yoy_pct":
+            pk = prev_year_key(t)
+            pv = valid.get(pk) if pk else None
+            if pv and pv != 0:
+                return round((raw / pv - 1) * 100, 2)
+            return None
+        if calc_type == "yoy_diff":
+            pk = prev_year_key(t)
+            pv = valid.get(pk) if pk else None
+            if pv is not None:
+                return round(raw - pv, 1)
+            return None
+        if calc_type == "qoq_pct":
+            if idx > 0:
+                prev_raw = valid[times[idx - 1]]
+                if prev_raw and prev_raw != 0:
+                    return round((raw / prev_raw - 1) * 100, 2)
+            return None
+        return None
+
+    latest_idx = n - 1
+    cur_val  = derived(latest_idx)
+    obs_date = times[latest_idx]
+    prev_val = derived(latest_idx - cp["prev"])
+    mid_val  = derived(latest_idx - cp["mid"])
+    yoy_val  = derived(latest_idx - cp["yoy"])
+
+    return cur_val, obs_date, prev_val, mid_val, yoy_val
+
+
+# ---------------------------------------------------------------------------
+# 메인 수집 루프
+# ---------------------------------------------------------------------------
 def collect_all() -> pd.DataFrame:
     records: dict[str, dict] = {}
     total = len(SERIES)
@@ -408,26 +592,31 @@ def collect_all() -> pd.DataFrame:
 
         is_derived = item_code in ("SPREAD", "CSPREAD")
         if is_derived:
-            records[key] = {"label": label, "value": None, "date": "N/A",
-                            "unit": unit, "stat_code": stat_code, "period": period}
+            records[key] = {
+                "label": label, "value": None, "date": "N/A",
+                "unit": unit, "stat_code": stat_code, "period": period,
+                "prev_val": None, "mid_val": None, "yoy_val": None,
+            }
             continue
 
         print(f"  [{i:02d}/{total}] {key:<25} {stat_code}/{item_code}"
               + (f" [{calc_type}]" if calc_type else ""))
         rows = fetch_series(stat_code, period, item_code)
 
-        if calc_type and calc_type in CALC_FUNCS:
-            value, obs_date = CALC_FUNCS[calc_type](rows)
-        else:
-            value, obs_date = latest_value(rows)
+        value, obs_date, prev_val, mid_val, yoy_val = get_ecos_comparisons(
+            rows, period, calc_type
+        )
 
         records[key] = {
-            "label": label,
-            "value": value,
-            "date": obs_date,
-            "unit": unit,
+            "label":    label,
+            "value":    value,
+            "date":     obs_date,
+            "unit":     unit,
             "stat_code": stat_code,
-            "period": period,
+            "period":   period,
+            "prev_val": prev_val,
+            "mid_val":  mid_val,
+            "yoy_val":  yoy_val,
         }
         time.sleep(CALL_INTERVAL)
 
@@ -436,14 +625,22 @@ def collect_all() -> pd.DataFrame:
 
     rows_out = []
     for key, meta in records.items():
+        val      = meta["value"]
+        prev_val = meta.get("prev_val")
+        mid_val  = meta.get("mid_val")
+        yoy_val  = meta.get("yoy_val")
         rows_out.append({
             "series_id": key,
-            "label": meta["label"],
-            "value": meta["value"],
-            "date": meta["date"],
-            "unit": meta["unit"],
+            "label":     meta["label"],
+            "value":     val,
+            "date":      meta["date"],
+            "unit":      meta["unit"],
             "stat_code": meta["stat_code"],
-            "period": meta["period"],
+            "period":    meta["period"],
+            "chg_prev":  calc_chg(val, prev_val),
+            "chg_mid":   calc_chg(val, mid_val),
+            "chg_yoy":   calc_chg(val, yoy_val),
+            "note":      SERIES_NOTES.get(key, ""),
         })
     return pd.DataFrame(rows_out)
 
@@ -477,6 +674,12 @@ def save_csv(df: pd.DataFrame, ts: str) -> None:
 
 
 def save_md(df: pd.DataFrame, fetched_at: str) -> None:
+    import math as _math
+
+    def _nn(v: object) -> float | None:
+        """pandas NaN → None 변환."""
+        return None if (v is None or (isinstance(v, float) and _math.isnan(v))) else v  # type: ignore[return-value]
+
     lookup = df.set_index("series_id").to_dict("index")
     lines = [
         "# ECOS 한국 거시경제 팩트 테이블",
@@ -488,31 +691,49 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
     ]
 
     for cat, keys in CATEGORY_MAP.items():
+        # 카테고리 내 대표 주기로 중기비 레이블 결정
+        cat_periods = [lookup[k]["period"] for k in keys if k in lookup]
+        dom_period  = max(set(cat_periods), key=cat_periods.count) if cat_periods else "M"
+        mid_label   = MID_LABELS.get(dom_period, "중기비")
+
         lines.append(f"## {cat}")
         lines.append("")
-        lines.append("| 시리즈 ID | 지표명 | 최신값 | 단위 | 기준일 |")
-        lines.append("|---------|------|------|-----|------|")
+        lines.append(f"| 시리즈 ID | 지표명 | 최신값 | 단위 | 기준일 | 전기비 | {mid_label} | YoY비 |")
+        lines.append("|---------|------|------|-----|------|------|------|------|")
         for k in keys:
             if k not in lookup:
                 continue
-            m = lookup[k]
-            val = m["value"]
-            val_str = f"{val:,.4f}".rstrip("0").rstrip(".") if val is not None else "N/A"
-            # 값이 None(품질검사 탈락 등)이면 기준일도 N/A로 표시 (오해 방지)
-            date_str = m["date"] if val is not None else "N/A"
-            # 수입금액 YoY 극단값(30%+) 경고 플래그: 관세충격·기저효과로 과대값 발생 가능
+            m        = lookup[k]
+            val      = _nn(m["value"])
+            chg_prev = _nn(m.get("chg_prev"))
+            chg_mid  = _nn(m.get("chg_mid"))
+            chg_yoy  = _nn(m.get("chg_yoy"))
+
+            val_str  = fmt_val(val)
+            # 값이 None(품질검사 탈락 등)이면 기준일·비교값도 N/A·"-" 로 표시
+            raw_date = m["date"] if val is not None else "N/A"
+            date_str = fmt_date(raw_date)
+            prev_str = fmt_chg(chg_prev) if val is not None else "-"
+            mid_str  = fmt_chg(chg_mid)  if val is not None else "-"
+            yoy_str  = fmt_chg(chg_yoy)  if val is not None else "-"
+
+            # 수입금액 YoY 극단값(30%+) 경고 플래그
             if k == "IMPORT_YOY" and val is not None and abs(val) >= 30:
                 val_str += " ⚠️기저효과"
-            # KOSPI/KOSDAQ: ECOS 구조적 지연(~6-7개월) 안내 — 실제 데이터이나 최신 시황 아님
-            if k in ("KOSPI", "KOSDAQ") and val is not None and date_str != "N/A":
+            # KOSPI/KOSDAQ: ECOS 구조적 지연(~6-7개월) 안내
+            if k in ("KOSPI", "KOSDAQ") and val is not None and raw_date != "N/A":
                 try:
                     from datetime import date as _date
-                    _obs = _date(int(date_str[:4]), int(date_str[4:6]), int(date_str[6:8]))
+                    _obs = _date(int(raw_date[:4]), int(raw_date[4:6]), int(raw_date[6:8]))
                     if (_date.today() - _obs).days > 90:
                         val_str += " ℹ️ECOS구조지연"
                 except Exception:
                     pass
-            lines.append(f"| {k} | {m['label']} | {val_str} | {m['unit']} | {date_str} |")
+
+            lines.append(
+                f"| {k} | {m['label']} | {val_str} | {m['unit']} | {date_str}"
+                f" | {prev_str} | {mid_str} | {yoy_str} |"
+            )
         lines.append("")
 
     lines += [
@@ -522,6 +743,11 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
         "> - ⚠️기저효과: 수입금액 YoY ≥30%, 관세충격·기저효과로 과대값 가능",
         "> - ℹ️ECOS구조지연: KOSPI/KOSDAQ는 ECOS 게재 특성상 ~6-7개월 지연 수록. "
         "기준일 참고 필수, 현재 시황 반영 아님",
+        "",
+        "> **비교 컬럼 범례**",
+        "> - 전기비: M=전월차, D=전일차, Q=전분기차 (원계열 수준→절대차, YoY/QoQ→%p 차이)",
+        "> - 중기비: M=3개월전비, D=4주전비, Q=2분기전비",
+        "> - YoY비: M=전년동월비, D=전년동일비, Q=전년동분기비",
         "",
     ]
 
