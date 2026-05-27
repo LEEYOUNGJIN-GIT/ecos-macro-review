@@ -177,7 +177,7 @@ def sig_01_term_spread(d: dict) -> dict:
 
 
 def sig_02_real_rate_gap(d: dict) -> dict:
-    """2. 실질금리 갭 (기준금리 - 근원CPI YoY, KOSIS OECD방식)"""
+    """2. 실질금리 갭 (기준금리 - 근원CPI YoY, 통계청 농산물·석유류제외)"""
     base = g(d, "BOK_BASE_RATE")
     core = g(d, "KOSIS_CORE_CPI_YOY")
     gap  = round(base - core, 4) if (base is not None and core is not None) else None
@@ -190,7 +190,7 @@ def sig_02_real_rate_gap(d: dict) -> dict:
         "value": gap, "unit": "%p",
         "date": gdate(d, "KOSIS_CORE_CPI_YOY"),
         "chg_prev": chg_prev, "chg_unit": "%p",
-        "detail": f"기준금리({fmt(base)}) - 근원CPI({fmt(core)}, KOSIS OECD방식) = {fmt(gap)}%p",
+        "detail": f"기준금리({fmt(base)}) - 근원CPI({fmt(core)}, 통계청) = {fmt(gap)}%p",
         "threshold": "≥2.0 강한 긴축 / ≤-1.0 완화",
         "score": score,
     }
@@ -504,7 +504,7 @@ def build_md(signals: list[dict], generated_at: str, data: dict) -> str:
         "| 🟠 위험 | 6 - 8 | 방어적 포지셔닝 권고 |",
         "| 🔴 심각 | 8 - 10 | 즉각적 리스크 관리 필요 |",
         "",
-        "> 출처: 한국은행 ECOS API + 통계청·관세청 KOSIS API | "
+        "> 출처: 한국은행 ECOS API + 통계청 KOSIS API | "
         "본 보고서는 자동 생성되며 투자 권고가 아닙니다.",
     ]
 

@@ -209,10 +209,10 @@ def compute_inflation_score(data: dict) -> dict:
                         g(data, "KOSIS_CPI_YOY__chg_yoy"),
                         s, w, gdate(data, "KOSIS_CPI_YOY")))
 
-    # 2. 근원CPI YoY (weight 2.0) — KOSIS OECD방식(식품·에너지제외)
+    # 2. 근원CPI YoY (weight 2.0) — 통계청 농산물·석유류제외
     core = g(data, "KOSIS_CORE_CPI_YOY")
     s, w = score_component(core, 0.0, 5.0, weight=2.0)
-    components.append(("KOSIS_CORE_CPI_YOY", "근원CPI 전년비(KOSIS OECD방식)", core, "%",
+    components.append(("KOSIS_CORE_CPI_YOY", "근원CPI 전년비(통계청)", core, "%",
                         g(data, "KOSIS_CORE_CPI_YOY__chg_prev"),
                         g(data, "KOSIS_CORE_CPI_YOY__chg_yoy"),
                         s, w, gdate(data, "KOSIS_CORE_CPI_YOY")))
@@ -409,7 +409,7 @@ def build_md(
         "---",
         "",
         "> ※ KOSPI는 레짐 성장 점수 제외 (SIG12에서 별도 모니터링)",
-        "> 출처: 한국은행 ECOS API + 통계청·관세청 KOSIS API | "
+        "> 출처: 한국은행 ECOS API + 통계청 KOSIS API | "
         "본 보고서는 자동 생성되며 투자 권고가 아닙니다.",
     ]
 

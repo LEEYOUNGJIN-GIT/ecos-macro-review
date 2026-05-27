@@ -528,8 +528,12 @@ def get_ecos_comparisons(
     def prev_year_key(t: str) -> str | None:
         if len(t) == 6 and t.isdigit():    # YYYYMM
             return f"{int(t[:4]) - 1}{t[4:]}"
-        if len(t) == 7 and "Q" in t:       # YYYYQN (예: 2026Q1)
+        if "Q" in t:                       # YYYYQN (ECOS: 2026Q1, 6자)
             return f"{int(t[:4]) - 1}{t[4:]}"
+        if len(t) == 8 and t.isdigit():    # YYYYMMDD
+            from datetime import datetime as dt
+            d = dt.strptime(t, "%Y%m%d") - timedelta(days=365)
+            return d.strftime("%Y%m%d")
         return None
 
     def derived(idx: int) -> float | None:
@@ -637,6 +641,14 @@ def collect_all() -> pd.DataFrame:
     return pd.DataFrame(rows_out)
 
 
+def drop_failed(df: pd.DataFrame) -> pd.DataFrame:
+    """수집 실패(value=None/NaN) 지표는 CSV·MD에서 제외."""
+    failed = df.loc[df["value"].isna(), "series_id"].tolist()
+    if failed:
+        print(f"  [DROP] 수집 실패 지표 제외 ({len(failed)}개): {', '.join(failed)}")
+    return df.dropna(subset=["value"]).reset_index(drop=True)
+
+
 # ---------------------------------------------------------------------------
 # 출력 파일 생성
 # ---------------------------------------------------------------------------
@@ -711,7 +723,7 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
             yoy_str  = fmt_chg(chg_yoy)  if val is not None else "-"
 
             # 수입금액 YoY 극단값(30%+) 경고 플래그
-            if k == "IMPORT_YOY" and val is not None and abs(val) >= 30:
+            if k == "IMPORT_PRICE_YOY" and val is not None and abs(val) >= 30:
                 val_str += " ⚠️기저효과"
             # KOSPI/KOSDAQ: ECOS 구조적 지연(~6-7개월) 안내
             if k in ("KOSPI", "KOSDAQ") and val is not None and raw_date != "N/A":
@@ -733,7 +745,7 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
         "---",
         "",
         "> **플래그 범례**",
-        "> - ⚠️기저효과: 수입금액 YoY ≥30%, 관세충격·기저효과로 과대값 가능",
+        "> - ⚠️기저효과: 수입물가 YoY ≥30%, 관세충격·기저효과로 과대값 가능",
         "> - ℹ️ECOS구조지연: KOSPI/KOSDAQ는 ECOS 게재 특성상 ~6-7개월 지연 수록. "
         "기준일 참고 필수, 현재 시황 반영 아님",
         "",
@@ -765,6 +777,7 @@ def main() -> None:
         sys.exit(1)
 
     df = collect_all()
+    df = drop_failed(df)
 
     ts = datetime.now(_KST).strftime("%Y%m%d_%H%M%S")
     fetched_at = datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")

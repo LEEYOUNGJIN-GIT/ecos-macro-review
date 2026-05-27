@@ -76,6 +76,13 @@ def merge() -> pd.DataFrame:
 
     combined = pd.concat([ecos_df, kosis_df], ignore_index=True)
 
+    # 수집 실패(N/A) 행 제거
+    before = len(combined)
+    combined = combined.dropna(subset=["value"]).reset_index(drop=True)
+    dropped = before - len(combined)
+    if dropped:
+        print(f"  [DROP] N/A 지표 {dropped}개 제외 (통합 {before} → {len(combined)}개)")
+
     print(f"  ECOS: {len(ecos_df)}개, KOSIS: {len(kosis_df)}개, 통합: {len(combined)}개")
 
     _check_staleness(combined)

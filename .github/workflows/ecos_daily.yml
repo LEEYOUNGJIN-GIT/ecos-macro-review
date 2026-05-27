@@ -66,6 +66,23 @@ jobs:
       - name: Step 1c - Merge ECOS + KOSIS → macro_latest.csv
         run: python scripts/merge_macro.py
 
+      - name: Step 1c-check - macro 통합 검증 (N/A 제외, 최소 30개)
+        run: |
+          python - << 'PYEOF'
+          import pandas as pd, sys
+          df = pd.read_csv("data/macro_latest.csv")
+          na = int(df["value"].isna().sum())
+          n = len(df)
+          print(f"macro: {n}개, N/A: {na}개")
+          if na > 0:
+              print("[FAIL] macro에 N/A 잔존 — drop_failed/merge 확인 필요")
+              sys.exit(1)
+          if n < 30:
+              print(f"[FAIL] macro {n}개 — 최소 30개 미달")
+              sys.exit(1)
+          print("[OK] macro 통합 검증 통과")
+          PYEOF
+
       # ── 2단계: 신호 대시보드 생성 ─────────────────────────────────────────
       - name: Step 2 - Generate signals dashboard
         run: python scripts/ecos_signals.py

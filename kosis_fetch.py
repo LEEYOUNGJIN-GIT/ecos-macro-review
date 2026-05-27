@@ -134,8 +134,7 @@ KOSIS_SERIES = [
 # 지표별 해석 노트 (Claude 분석 컨텍스트 강화)
 # ---------------------------------------------------------------------------
 _FACT_ONLY   = "[참조전용] 신호/레짐 점수 미사용"
-_CORE_NOTE   = ("OECD방식(식품·에너지제외). "
-                "구 ECOS QB(농산물·석유류제외)와 정의 상이 - 수치 직접 비교 불가")
+_CORE_NOTE   = "통계청 농산물·석유류제외(구 ECOS QB와 동일 계열). OECD 식품·에너지제외와 정의 상이"
 SERIES_NOTES: dict[str, str] = {
     "KOSIS_CPI_YOY":          "소비자물가 기준지표. 통계청 익월 초 발표. BOK 목표 2%",
     "KOSIS_CORE_CPI_YOY":     _CORE_NOTE,
@@ -482,6 +481,14 @@ def collect_all() -> pd.DataFrame:
     return pd.DataFrame(rows_out)
 
 
+def drop_failed(df: pd.DataFrame) -> pd.DataFrame:
+    """수집 실패(value=None/NaN) 지표는 CSV·MD에서 제외."""
+    failed = df.loc[df["value"].isna(), "series_id"].tolist()
+    if failed:
+        print(f"  [DROP] 수집 실패 지표 제외 ({len(failed)}개): {', '.join(failed)}")
+    return df.dropna(subset=["value"]).reset_index(drop=True)
+
+
 # ---------------------------------------------------------------------------
 # 포맷 헬퍼
 # ---------------------------------------------------------------------------
@@ -538,14 +545,14 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
     lookup = df.set_index("series_id").to_dict("index")
 
     lines = [
-        "# KOSIS 거시경제 팩트 테이블 (통계청·관세청)",
+        "# KOSIS 거시경제 팩트 테이블 (통계청)",
         "",
         f"**업데이트**: {fetched_at} (KST)",
         "",
-        "> **출처**: 통계청(orgId=101), 관세청(orgId=145) - KOSIS Open API",
+        "> **출처**: 통계청(orgId=101) - KOSIS Open API",
         "> **[참조전용]**: 신호/레짐 점수 산정에 미사용, 분석 참고 전용",
-        "> **KOSIS_CORE_CPI_YOY**: OECD방식(식품·에너지제외) - "
-        "구 ECOS QB(농산물·석유류제외)와 정의 상이, 수치 직접 비교 불가",
+        "> **KOSIS_CORE_CPI_YOY**: 통계청 농산물·석유류제외(DT_1J22007). "
+        "OECD 식품·에너지제외와 정의 상이 — 수치 직접 비교 불가",
         "",
         "---",
         "",
@@ -605,7 +612,7 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
         "> - 중기비: 3개월전비",
         "> - YoY비: 전년동월비 (calc_type=yoy_pct/yoy_diff 적용 후 변화)",
         "",
-        "> **출처**: 한국은행 ECOS API + 통계청·관세청 KOSIS API",
+        "> **출처**: 통계청 KOSIS Open API",
         "",
     ]
 
@@ -641,6 +648,7 @@ def main() -> None:
         sys.exit(1)
 
     df = collect_all()
+    df = drop_failed(df)
 
     fetched_at = datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")
     save_csv(df)
