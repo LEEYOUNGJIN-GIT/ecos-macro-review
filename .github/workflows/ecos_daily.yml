@@ -49,6 +49,20 @@ jobs:
           KOSIS_API_KEY: ${{ secrets.KOSIS_API_KEY }}
         run: python kosis_fetch.py
 
+      - name: Step 1b-check - KOSIS 수집 성공률 검증 (최소 8/14)
+        run: |
+          python - << 'PYEOF'
+          import pandas as pd, sys
+          df = pd.read_csv("data/kosis_latest.csv")
+          ok = int(df["value"].notna().sum())
+          total = len(df)
+          print(f"KOSIS 수집: {ok}/{total} 지표 성공")
+          if ok < 8:
+              print(f"[FAIL] KOSIS 수집 {ok}/{total} — 최소 8개 미달. 파이프라인 중단.")
+              sys.exit(1)
+          print("[OK] KOSIS 수집 기준 통과")
+          PYEOF
+
       - name: Step 1c - Merge ECOS + KOSIS → macro_latest.csv
         run: python scripts/merge_macro.py
 

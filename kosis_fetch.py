@@ -15,10 +15,21 @@ KOSIS API 키 발급: https://kosis.kr/openapi/
   - 검증 실패 시 해당 지표는 None 처리, 파이프라인 계속 진행.
 
 수정 이력:
-  v1.0 (2026-05-27): 최초 작성 — ECOS+KOSIS 통합 플랜 v1 구현
+  v1.1 (2026-05-27): API 파라미터 수정 및 JSON 파싱 수정
+  - KOSIS 응답이 비표준 JS 표기({key:"val"})이므로 resp.json() 대신 regex fix 후 json.loads 사용
+  - KOSIS_SERIES 튜플에 c1_filter(11번째) 추가: 동일 tblId 내 C1 코드로 지표 구분 시 사용
+  - CPI/근원CPI/고용/경기지수 tblId·itmId·objL1 검증값으로 교체
+    · CPI: DT_1J22003 / objL1=T10 / itmId=T (지수→yoy_pct)
+    · 근원CPI: DT_1J22007(농산물석유류제외) / objL1=QC / itmId=T (지수→yoy_pct)
+    · 고용: DT_1DA7002S / objL1=00 / itmId T80/T90/T60/T30 검증
+    · 경기지수 순환변동치: DT_1C8016→DT_1C8015 교체, c1_filter B03/A03 추가
+  - 광공업생산/소매판매/서비스업생산/수출입: API 접근 불가 tblId 미발견, v1.2에서 해결 예정
+  v1.0 (2026-05-27): 최초 작성 - ECOS+KOSIS 통합 플랜 v1 구현
 """
 
+import json
 import os
+import re
 import sys
 import time
 import argparse
@@ -56,73 +67,72 @@ DATA_DIR.mkdir(exist_ok=True)
 #   "yoy_pct"  - 지수에서 전년동기비(%) 계산
 #   "yoy_diff" - 수준값에서 전년동기 절대 증감 계산
 #
-# ⚠ tbl_id / itm_id / obj_l1 는 초안값 — validate_tblids() 로 검증 필수
+# ⚠ tbl_id / itm_id / obj_l1 는 초안값 - validate_tblids() 로 검증 필수
 #
 # 주요 orgId:
 #   101 = 통계청(국가통계포털)
 #   145 = 관세청
 # ---------------------------------------------------------------------------
 KOSIS_SERIES = [
-    # ── 01. 물가 ─────────────────────────────────────────────────────────
-    # DT_1J22003: 소비자물가 등락률(전년동월비 직접 제공) — 통계청(101)
-    # itm_id T20: 총지수 전년동월비 항목코드 (초안 — 검증 필요)
-    ("KOSIS_CPI_YOY",        "101", "DT_1J22003", "T20", "0",   "M",
-     "%",     "소비자물가 전년동월비",              None,       "익월 7일"),
+    # 형식: (series_id, org_id, tbl_id, itm_id, obj_l1, prd_se,
+    #        unit, label, calc_type, release_lag, c1_filter)
+    # c1_filter: 동일 tblId 내 C1 코드로 지표를 구분할 때 사용. None이면 필터 없음.
 
-    # DT_1J22003: 근원물가(식품·에너지제외, OECD방식) 전년동월비 — 통계청(101)
-    # itm_id T20, obj_l1 0AF: 식품·에너지제외 총지수 항목 (초안 — 검증 필요)
-    # ※ 구 ECOS CORE_CPI_YOY(QB=농산물·석유류제외)와 기준 상이
-    ("KOSIS_CORE_CPI_YOY",   "101", "DT_1J22003", "T20", "0AF", "M",
-     "%",     "근원물가 전년동월비(식품·에너지제외)", None,       "익월 7일"),
+    # ── 01. 물가 ─────────────────────────────────────────────────────────
+    # DT_1J22003: 소비자물가지수(2020=100) - 통계청(101)
+    # objL1=T10(전국), itmId=T(총지수) → yoy_pct 계산으로 전년비 도출 ✅ v1.1 검증완료
+    ("KOSIS_CPI_YOY",        "101", "DT_1J22003", "T",   "T10", "M",
+     "%",     "소비자물가 전년동월비",              "yoy_pct",  "익월 7일",  None),
+
+    # DT_1J22007: 농산물및석유류제외지수(2020=100) - 통계청(101)
+    # objL1=QC(농산물·석유류제외 전국), itmId=T(총지수) → yoy_pct ✅ v1.1 검증완료
+    # ※ 한국 공식 근원CPI(농산물·석유류제외) 기준 — OECD방식(식품·에너지제외)과 상이
+    ("KOSIS_CORE_CPI_YOY",   "101", "DT_1J22007", "T",   "QC",  "M",
+     "%",     "근원물가 전년동월비(농산물·석유류제외)", "yoy_pct",  "익월 7일",  None),
 
     # ── 02. 고용 ─────────────────────────────────────────────────────────
-    # DT_1DA7002S: 경제활동인구조사 — 통계청(101)
-    # itm_id T2: 실업률, T13: 고용률, T10: 경제활동참가율, T9: 취업자수(천명)
-    # (초안 — 검증 필요)
-    ("KOSIS_UNEMP_RATE",     "101", "DT_1DA7002S", "T2",  "ALL", "M",
-     "%",     "실업률",                           None,       "익월 15일"),
-    ("KOSIS_EMP_RATE",       "101", "DT_1DA7002S", "T13", "ALL", "M",
-     "%",     "고용률(15세이상)",                   None,       "익월 15일"),
-    ("KOSIS_LABOR_PART",     "101", "DT_1DA7002S", "T10", "ALL", "M",
-     "%",     "경제활동참가율",                    None,       "익월 15일"),
+    # DT_1DA7002S: 경제활동인구조사 - 통계청(101)
+    # objL1=00(전국), itmId: T80=실업률, T90=고용률, T60=경활참가율, T30=취업자(천명)
+    # ✅ v1.1 검증완료
+    ("KOSIS_UNEMP_RATE",     "101", "DT_1DA7002S", "T80", "00",  "M",
+     "%",     "실업률",                           None,       "익월 15일", None),
+    ("KOSIS_EMP_RATE",       "101", "DT_1DA7002S", "T90", "00",  "M",
+     "%",     "고용률(15세이상)",                   None,       "익월 15일", None),
+    ("KOSIS_LABOR_PART",     "101", "DT_1DA7002S", "T60", "00",  "M",
+     "%",     "경제활동참가율",                    None,       "익월 15일", None),
     # 취업자수(천명) → 전년동기 증감으로 변환 (yoy_diff)
-    ("KOSIS_EMP_CHANGE",     "101", "DT_1DA7002S", "T9",  "ALL", "M",
-     "천명",   "취업자수 전년동기 증감",              "yoy_diff", "익월 15일"),
+    ("KOSIS_EMP_CHANGE",     "101", "DT_1DA7002S", "T30", "00",  "M",
+     "천명",   "취업자수 전년동기 증감",              "yoy_diff", "익월 15일", None),
 
     # ── 03. 경기지수 ──────────────────────────────────────────────────────
-    # DT_1C8016: 경기종합지수 순환변동치 — 통계청(101)
-    # itm_id T3: 동행지수 순환변동치, T5: 선행지수 순환변동치 (초안 — 검증 필요)
-    ("KOSIS_CLI_COINCIDENT", "101", "DT_1C8016",   "T3",  "ALL", "M",
-     "지수",   "동행지수 순환변동치",               None,       "약 2개월"),
-    ("KOSIS_CLI_LEADING",    "101", "DT_1C8016",   "T5",  "ALL", "M",
-     "지수",   "선행지수 순환변동치",               None,       "약 2개월"),
+    # DT_1C8015: 경기종합지수(10차)(2020=100) - 통계청(101)
+    # objL1=ALL, itmId=T1, c1_filter로 동행/선행 순환변동치 구분 ✅ v1.1 검증완료
+    # 동행지수 순환변동치: C1=B03 (최신값 약 100.1), 선행지수 순환변동치: C1=A03 (103.5)
+    ("KOSIS_CLI_COINCIDENT", "101", "DT_1C8015",   "T1",  "ALL", "M",
+     "지수",   "동행지수 순환변동치",               None,       "약 2개월",  "B03"),
+    ("KOSIS_CLI_LEADING",    "101", "DT_1C8015",   "T1",  "ALL", "M",
+     "지수",   "선행지수 순환변동치",               None,       "약 2개월",  "A03"),
 
     # ── 04. 생산 ─────────────────────────────────────────────────────────
-    # DT_1J14001: 광공업생산지수(2020=100) — 통계청(101)
-    # 원계열 총지수 → 전년비 계산 (yoy_pct)
+    # ⚠ DT_1J14001: API 접근 시 빈 응답 - tblId/objL1 미확인 (v1.2에서 해결 예정)
     ("KOSIS_INDPRO_YOY",     "101", "DT_1J14001",  "T10", "ALL", "M",
-     "%",     "광공업생산지수 전년비",              "yoy_pct",  "익월 말"),
+     "%",     "광공업생산지수 전년비",              "yoy_pct",  "익월 말",   None),
 
-    # ── 05. 수출입 (관세청 145) ───────────────────────────────────────────
-    # DT_TRDE_006: 수출입통관통계 — 관세청(145)
-    # 전년동월비 직접 제공(초안 — 검증 필요)
+    # ── 05. 수출입 ────────────────────────────────────────────────────────
+    # ⚠ DT_TRDE_006: 관세청(145) 테이블 API 미접근 - tblId 미확인 (v1.2에서 해결 예정)
     ("KOSIS_EXPORT_YOY",     "145", "DT_TRDE_006", "T10", "ALL", "M",
-     "%",     "수출 전년동월비(통관기준)",          None,       "익월 1~5일"),
+     "%",     "수출 전년동월비(통관기준)",          None,       "익월 1~5일", None),
     ("KOSIS_IMPORT_YOY",     "145", "DT_TRDE_006", "T13", "ALL", "M",
-     "%",     "수입 전년동월비(통관기준)",          None,       "익월 1~5일"),
+     "%",     "수입 전년동월비(통관기준)",          None,       "익월 1~5일", None),
     ("KOSIS_TRADE_BALANCE",  "145", "DT_TRDE_006", "T16", "ALL", "M",
-     "백만달러", "무역수지",                       None,       "익월 1~5일"),
+     "백만달러", "무역수지",                       None,       "익월 1~5일", None),
 
     # ── 06. 소비·내수 ─────────────────────────────────────────────────────
-    # DT_1J14003: 소매판매액지수(2020=100) — 통계청(101)
-    # 원계열 총지수 → 전년비 계산 (yoy_pct)
+    # ⚠ DT_1J14003/DT_1J22004: API 접근 시 빈 응답 - tblId/objL1 미확인 (v1.2에서 해결 예정)
     ("KOSIS_RETAIL_YOY",       "101", "DT_1J14003", "T10", "ALL", "M",
-     "%",     "소매판매 전년동월비",               "yoy_pct",  "익월 말"),
-
-    # DT_1J22004: 서비스업생산지수(2020=100) — 통계청(101)
-    # 원계열 총지수 → 전년비 계산 (yoy_pct)
+     "%",     "소매판매 전년동월비",               "yoy_pct",  "익월 말",   None),
     ("KOSIS_SERVICE_PROD_YOY", "101", "DT_1J22004", "T10", "ALL", "M",
-     "%",     "서비스업생산지수 전년비",            "yoy_pct",  "익월 말"),
+     "%",     "서비스업생산지수 전년비",            "yoy_pct",  "익월 말",   None),
 ]
 
 # ---------------------------------------------------------------------------
@@ -130,7 +140,7 @@ KOSIS_SERIES = [
 # ---------------------------------------------------------------------------
 _FACT_ONLY   = "[참조전용] 신호/레짐 점수 미사용"
 _CORE_NOTE   = ("OECD방식(식품·에너지제외). "
-                "구 ECOS QB(농산물·석유류제외)와 정의 상이 — 수치 직접 비교 불가")
+                "구 ECOS QB(농산물·석유류제외)와 정의 상이 - 수치 직접 비교 불가")
 _TRADE_BAL   = "[참조전용] 절대금액(백만달러), 신호 점수 산정 불가"
 
 SERIES_NOTES: dict[str, str] = {
@@ -198,10 +208,17 @@ def _date_range(prd_se: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 # KOSIS API 호출
 # ---------------------------------------------------------------------------
+def _kosis_parse_json(text: str) -> object:
+    """KOSIS 응답은 키에 따옴표가 없는 비표준 JSON({key:"val"})을 반환.
+    정규식으로 표준 JSON 변환 후 파싱한다."""
+    fixed = re.sub(r'(?<=[{,\[])\s*(\w+)\s*:', r'"\1":', text)
+    return json.loads(fixed)
+
+
 def fetch_kosis_series(
     org_id: str, tbl_id: str, itm_id: str, obj_l1: str, prd_se: str
 ) -> list[dict]:
-    """KOSIS statisticsParameterData.do 호출 → 데이터 row 리스트 반환.
+    """KOSIS statisticsParameterData.do 호출 -> 데이터 row 리스트 반환.
 
     오류 발생 시 [] 반환 (파이프라인 중단 없음).
     """
@@ -225,9 +242,10 @@ def fetch_kosis_series(
     try:
         resp = requests.get(BASE_URL, params=params, timeout=20)
         resp.raise_for_status()
-        body = resp.json()
+        resp.encoding = "utf-8"
+        body = _kosis_parse_json(resp.text)
 
-        # KOSIS 에러 응답: {"err": "30", "errMsg": "..."}
+        # KOSIS 에러 응답: {err:"30", errMsg:"..."}
         if isinstance(body, dict):
             err = body.get("err", "")
             if err:
@@ -254,14 +272,20 @@ def _prev_year_key(t: str) -> str | None:
 
 
 def get_kosis_comparisons(
-    rows: list[dict], prd_se: str, calc_type: str | None
+    rows: list[dict], prd_se: str, calc_type: str | None,
+    c1_filter: str | None = None,
 ) -> tuple[float | None, str, float | None, float | None, float | None]:
     """rows에서 최신값 및 전기/중기/YoY 비교 대상값을 반환한다.
 
+    c1_filter: 지정 시 C1 필드가 해당 값인 row만 사용 (동일 tblId 내 C1 구분용).
     Returns:
         (cur_val, obs_date, prev_val, mid_val, yoy_val)
     """
-    # PRD_DE(기간) → DT(값) 딕셔너리 구성
+    # c1_filter 적용
+    if c1_filter:
+        rows = [r for r in rows if r.get("C1") == c1_filter]
+
+    # PRD_DE(기간) -> DT(값) 딕셔너리 구성
     valid: dict[str, float] = {}
     for r in rows:
         v = r.get("DT", "")
@@ -316,9 +340,9 @@ def get_kosis_comparisons(
 # 데이터 품질 검증
 # ---------------------------------------------------------------------------
 def _check_data_quality(records: dict) -> dict:
-    """6개월 초과 지연 시 None 처리 (경기지수 제외 — 구조적 2개월 지연 정상)."""
+    """6개월 초과 지연 시 None 처리 (경기지수 제외 - 구조적 2개월 지연 정상)."""
     today = date.today()
-    # 통계청 경기지수는 구조적으로 약 2개월 지연이 정상 → 면제
+    # 통계청 경기지수는 구조적으로 약 2개월 지연이 정상 -> 면제
     STALENESS_EXEMPT = {"KOSIS_CLI_COINCIDENT", "KOSIS_CLI_LEADING"}
 
     for key, meta in records.items():
@@ -333,7 +357,7 @@ def _check_data_quality(records: dict) -> dict:
                 obs = date(int(obs_date[:4]), int(obs_date[4:6]), 1)
                 months_lag = (today.year - obs.year) * 12 + (today.month - obs.month)
                 if months_lag > 6:
-                    print(f"  [STALE] {key}: {obs_date} ({months_lag}개월 지연) → None")
+                    print(f"  [STALE] {key}: {obs_date} ({months_lag}개월 지연) -> None")
                     records[key]["value"] = None
         except Exception:
             pass
@@ -345,7 +369,7 @@ def _check_data_quality(records: dict) -> dict:
 # tblId 검증 (최초 실행 시 권장)
 # ---------------------------------------------------------------------------
 def validate_tblids() -> None:
-    """각 KOSIS 시리즈의 tblId/itmId 검증 — 최근 3개월 데이터 반환 여부 확인."""
+    """각 KOSIS 시리즈의 tblId/itmId 검증 - 최근 3개월 데이터 반환 여부 확인."""
     if not API_KEY:
         print("[ERROR] KOSIS_API_KEY 환경변수가 설정되지 않았습니다.")
         return
@@ -379,15 +403,19 @@ def validate_tblids() -> None:
         }
         try:
             resp = requests.get(BASE_URL, params=params, timeout=15)
-            body = resp.json()
-            if isinstance(body, list) and len(body) > 0:
-                sample = body[-1].get("DT", "?")
-                print(f"  [OK]   {sid:<30} {tbl_id}/{itm_id} — {len(body)}행, 최신값={sample}")
+            resp.encoding = "utf-8"
+            body = _kosis_parse_json(resp.text)
+            c1_filter = entry[10] if len(entry) > 10 else None
+            rows = [r for r in body if r.get("C1") == c1_filter] if (c1_filter and isinstance(body, list)) else body
+            if isinstance(rows, list) and len(rows) > 0:
+                sample = rows[-1].get("DT", "?")
+                c1_info = f" c1={c1_filter}" if c1_filter else ""
+                print(f"  [OK]   {sid:<30} {tbl_id}/{itm_id}{c1_info} - {len(rows)}행, 최신값={sample}")
                 ok_count += 1
             else:
                 err_info = (body.get("errMsg", str(body)) if isinstance(body, dict)
                             else "데이터 없음(빈 배열)")
-                print(f"  [WARN] {sid:<30} {tbl_id}/{itm_id} — {err_info}")
+                print(f"  [WARN] {sid:<30} {tbl_id}/{itm_id} - {err_info}")
                 warn_count += 1
         except Exception as exc:
             print(f"  [ERROR] {sid:<30} {exc}")
@@ -410,14 +438,15 @@ def collect_all() -> pd.DataFrame:
     total = len(KOSIS_SERIES)
 
     for i, entry in enumerate(KOSIS_SERIES, 1):
-        sid, org_id, tbl_id, itm_id, obj_l1, prd_se, unit, label, calc_type, release_lag = entry
+        sid, org_id, tbl_id, itm_id, obj_l1, prd_se, unit, label, calc_type, release_lag, c1_filter = entry
 
-        print(f"  [{i:02d}/{total}] {sid:<32} {tbl_id}/{itm_id}"
+        c1_info = f" c1={c1_filter}" if c1_filter else ""
+        print(f"  [{i:02d}/{total}] {sid:<32} {tbl_id}/{itm_id}{c1_info}"
               + (f" [{calc_type}]" if calc_type else ""))
 
         rows = fetch_kosis_series(org_id, tbl_id, itm_id, obj_l1, prd_se)
         cur_val, obs_date, prev_val, mid_val, yoy_val = get_kosis_comparisons(
-            rows, prd_se, calc_type
+            rows, prd_se, calc_type, c1_filter
         )
 
         records[sid] = {
@@ -495,9 +524,9 @@ def _fmt_date(d: str) -> str:
     if not d or d == "N/A":
         return "N/A"
     d = str(d)
-    if len(d) == 6 and d.isdigit():   # YYYYMM → YYYY-MM
+    if len(d) == 6 and d.isdigit():   # YYYYMM -> YYYY-MM
         return f"{d[:4]}-{d[4:]}"
-    if len(d) == 8 and d.isdigit():   # YYYYMMDD → YYYY-MM-DD
+    if len(d) == 8 and d.isdigit():   # YYYYMMDD -> YYYY-MM-DD
         return f"{d[:4]}-{d[4:6]}-{d[6:]}"
     return d
 
@@ -524,9 +553,9 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
         "",
         f"**업데이트**: {fetched_at} (KST)",
         "",
-        "> **출처**: 통계청(orgId=101), 관세청(orgId=145) — KOSIS Open API",
+        "> **출처**: 통계청(orgId=101), 관세청(orgId=145) - KOSIS Open API",
         "> **[참조전용]**: 신호/레짐 점수 산정에 미사용, 분석 참고 전용",
-        "> **KOSIS_CORE_CPI_YOY**: OECD방식(식품·에너지제외) — "
+        "> **KOSIS_CORE_CPI_YOY**: OECD방식(식품·에너지제외) - "
         "구 ECOS QB(농산물·석유류제외)와 정의 상이, 수치 직접 비교 불가",
         "",
         "---",
@@ -561,7 +590,7 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
             prev_str = _fmt_chg(chg_prev) if val is not None else "-"
             mid_str  = _fmt_chg(chg_mid)  if val is not None else "-"
             yoy_str  = _fmt_chg(chg_yoy)  if val is not None else "-"
-            lag      = RELEASE_LAG_MAP.get(k, "—")
+            lag      = RELEASE_LAG_MAP.get(k, "-")
 
             # 2개월 지연 지표에 경고 아이콘 추가
             if "2개월" in lag and val is not None:

@@ -328,9 +328,9 @@ def build_md(
         f"| 구분 | 점수 (0-10) | 판정 |",
         f"|-----|-----------|-----|",
         f"| 성장 점수 | **{fmt(gs)}** | "
-        f"{'강함 (>5)' if gs is not None and gs > GROWTH_THRESHOLD else '약함 (≤5)'} |",
+        f"{'강함 (>5)' if gs is not None and gs > GROWTH_THRESHOLD else ('약함 (≤5)' if gs is not None else '⚠️ 데이터 부족 (N/A)')} |",
         f"| 인플레이션 점수 | **{fmt(is_)}** | "
-        f"{'높음 (>5)' if is_ is not None and is_ > INFLATION_THRESHOLD else '낮음 (≤5)'} |",
+        f"{'높음 (>5)' if is_ is not None and is_ > INFLATION_THRESHOLD else ('낮음 (≤5)' if is_ is not None else '⚠️ 데이터 부족 (N/A)')} |",
         "",
         f"### 레짐: {regime['name']} ({regime['kor']})",
         "",

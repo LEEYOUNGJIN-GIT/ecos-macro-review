@@ -406,8 +406,8 @@ def run_all_signals(data: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 기준일 이질성 경고 블록
 # ---------------------------------------------------------------------------
-def _build_staleness_block(data: dict, generated_at: str) -> str:
-    """SIG08/SIG06/SIG09 지연 여부를 점검해 경고 블록 생성."""
+def _build_staleness_block(data: dict, generated_at: str, signals: list[dict]) -> str:
+    """지연 지표 및 수집 실패(N/A) 신호를 점검해 경고 블록 생성."""
     today = date.today()
 
     # 2개월 이상 지연 여부 확인 대상
@@ -428,13 +428,19 @@ def _build_staleness_block(data: dict, generated_at: str) -> str:
             except Exception:
                 pass
 
+    # 수집 실패(score=None)인 신호 감지
+    na_sigs = [s["id"] for s in signals if s.get("score") is None]
+
     lines = [f"> **데이터 기준일 현황** (생성: {generated_at})"]
     lines.append("> - 최신(익월 초~중): 수출·CPI·고용(SIG10·SIG03·SIG05)")
+    if na_sigs:
+        lines.append(f"> - ⚠️ **수집 실패로 N/A**: {', '.join(na_sigs)}"
+                     " — KOSIS API 파라미터 또는 미발견 tblId. 해당 신호는 분석 제외.")
     if stale_items:
         lines.append("> - ⚠️ 2개월+ 지연: " + ", ".join(stale_items)
                      + " — 통계청 발표 특성, 분석 시 유의")
-    else:
-        lines.append("> - 지연 지표 없음 (모든 지표 2개월 이내)")
+    if not na_sigs and not stale_items:
+        lines.append("> - 지연·미수집 지표 없음 (모든 지표 정상)")
     return "\n".join(lines)
 
 
@@ -446,7 +452,7 @@ def build_md(signals: list[dict], generated_at: str, data: dict) -> str:
     total       = overall_risk(scores)
     total_label = risk_label(total)
 
-    staleness_block = _build_staleness_block(data, generated_at)
+    staleness_block = _build_staleness_block(data, generated_at, signals)
 
     lines = [
         "# ECOS + KOSIS 거시경제 신호 대시보드",
