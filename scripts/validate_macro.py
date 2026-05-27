@@ -52,6 +52,19 @@ def validate() -> list[str]:
     if not imp.empty and abs(float(imp.iloc[0])) >= IMPORT_WARN:
         warns.append(f"IMPORT_PRICE_YOY={imp.iloc[0]}% - 기저효과·관세충격 가능")
 
+    ppi  = df.loc[df["series_id"] == "PPI_YOY", "value"]
+    if not cpi.empty and not ppi.empty:
+        pv, cv = float(ppi.iloc[0]), float(cpi.iloc[0])
+        if abs(pv - cv) < 0.05:
+            ppi_chg = df.loc[df["series_id"] == "PPI_YOY", "chg_prev"]
+            cpi_chg = df.loc[df["series_id"] == "KOSIS_CPI_YOY", "chg_prev"]
+            if (not ppi_chg.empty and not cpi_chg.empty
+                    and float(ppi_chg.iloc[0]) == float(cpi_chg.iloc[0])):
+                errors.append(
+                    f"PPI_YOY({pv}%) == KOSIS_CPI_YOY({cv}%) — "
+                    "901Y009 CPI 중복 의심, 404Y014/*AA 확인"
+                )
+
     for w in warns:
         print(f"  [WARN] {w}")
     return errors

@@ -60,7 +60,7 @@
 | KOSPI | KOSPI 지수 | pt | **SIG12 전용 — 레짐 성장 제외** |
 | KOSDAQ | KOSDAQ 지수 | pt | 팩트 전용 |
 
-> **KOSPI**: ECOS 구조적 지연 ~6-7개월. 레짐 성장 점수에서 제외, SIG12에서만 사용.
+> **KOSPI**: ECOS 802Y001 일별 수집. 레짐 성장 점수에서 제외, SIG12에서만 사용.
 
 ### KOSIS 11개 (통계청 원천)
 
@@ -78,7 +78,7 @@
 | KOSIS_RETAIL_YOY | 소매판매 전년동월비 | % YoY | SIG06, 레짐성장(w=1.0) | 익월 말 |
 | KOSIS_SERVICE_PROD_YOY | 서비스업생산지수 전년비 | % YoY | SIG06 | 익월 말 |
 
-> **KOSIS_CORE_CPI_YOY**: 통계청 농산물·석유류제외 지수(DT_1J22007). 구 ECOS QB·OECD방식(식품·에너지제외)과 정의 상이 — 수치 직접 비교 불가.
+> **KOSIS_CORE_CPI_YOY**: 통계청 농산물·석유류제외 지수(DT_1J22007, C1=QB).
 > **제외 지표 (v1.2)**: KOSIS 수출·수입·무역수지 — 관세청 Open API `tblId` 미확인으로 파이프라인에서 제거. SIG10(수출 모멘텀) 미구현.
 
 ---

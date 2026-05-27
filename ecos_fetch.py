@@ -35,6 +35,11 @@ KOSIS 이관 완료 시리즈 (v3.0 - kosis_fetch.py 로 이전):
   - GDP 성장 점수 정규화 범위 조정: (-3.0, 6.0) -> (-2.0, 8.0) in ecos_regime.py
     (2026Q1 실질GDP YoY 6.42%가 상한 6.0 초과로 매번 클리핑되던 문제 해소)
 
+  v3.1 (2026-05-27): PPI 통계표 코드 수정 (API 실측 검증)
+  - PPI_YOY: 901Y009/0 → 404Y014/*AA
+    · 901Y009는 ECOS 명칭상 '소비자물가지수'(CPI) — KOSIS CPI와 index 119.37·YoY 2.57% 동일
+    · 404Y014/*AA = '생산자물가지수(기본분류) 총지수' (YoY≈6.9%)
+
   v3.0 (2026-05-27):
   - KOSIS 이관: 물가(CPI, CORE_CPI), 경기지수(CLI), 생산(INDPRO),
     고용(4개), 수출입(2개) -> 총 11개 SERIES 제거, 21개 유지
@@ -113,8 +118,9 @@ SERIES = [
 
     # ── 02. 물가·인플레 ────────────────────────────────────────────────────
     # CPI_YOY, CORE_CPI_YOY -> KOSIS 이관 (kosis_fetch.py 참조)
-    # 901Y009: 생산자물가지수(2020=100) -> 지수에서 전년비 계산
-    ("PPI_YOY",             "901Y009", "M", "0",       "%",    "생산자물가 전년비",        "yoy_pct"),  # YoY계산
+    # 404Y014/*AA: 생산자물가지수(기본분류) 총지수 (2020=100) — API 검증 ✅
+    # ※ 구 901Y009/0은 ECOS '소비자물가지수' 테이블(CPI 중복) → 제거
+    ("PPI_YOY",             "404Y014", "M", "*AA",     "%",    "생산자물가 전년비",        "yoy_pct"),
     # 403Y005: 수출입물가지수(2020=100), B=수입품물가지수 -> 지수에서 전년비 계산
     # (구 901Y013/A는 수입금액 절대값으로 물가지수 아님 -> 403Y005/B로 교체)
     ("IMPORT_PRICE_YOY",    "403Y005", "M", "B",       "%",    "수입물가 전년비",          "yoy_pct"),
@@ -153,10 +159,7 @@ SERIES = [
     # CSI           (511Y004/FMAA) : 최신 2022-08 (33개월 지연) -> ECOS 서비스 구조 변경 추정 -> 소거
 
     # ── 06. 금융시장 ───────────────────────────────────────────────────────
-    # 802Y001: 주가지수 일별 시리즈.
-    # ECOS는 시장 데이터를 약 6-7개월 지연 게재하는 구조적 특성 있음.
-    # 월별(M) 요청 시 802Y001 이 빈 결과를 반환하는 것이 확인되어 일별(D)로 복원.
-    # staleness 검사는 _check_data_quality()의 STALENESS_EXEMPT 로 면제 처리.
+    # 802Y001: 주가지수 일별 시리즈. 월별(M) 요청 시 빈 결과 → 일별(D) 사용.
     ("KOSPI",               "802Y001", "D", "0001000", "pt",   "KOSPI 지수",             None),
     ("KOSDAQ",              "802Y001", "D", "0089000", "pt",   "KOSDAQ 지수",            None),
     # 731Y004: 원/달러 환율 (0000001=USD, 0000100=월평균자료)
@@ -373,10 +376,6 @@ def _check_data_quality(records: dict) -> dict:
     검증 항목
     ─────────
     신선도 (Staleness): 월별 6개월·일별 180일 이상 지연 시 None
-    - STALENESS_EXEMPT: ECOS 시장 데이터(주가지수)는 구조적으로 ~6-7개월 지연
-      게재되므로 신선도 검사 면제. 실제 데이터이며 현재 운용 중인 시리즈임.
-
-    ※ 과거 검증 항목(소거 완료로 불필요):
     - RETAIL_SALES_YOY 이상치: 해당 시리즈 자체가 소거됨
     - CSI 신선도: 해당 시리즈 자체가 소거됨
     - BSI_ALL 신선도: 해당 시리즈 자체가 소거됨
@@ -384,14 +383,9 @@ def _check_data_quality(records: dict) -> dict:
     from datetime import date as _date
     today = _date.today()
 
-    # ECOS 시장 데이터: 구조적 지연(~7개월)이 정상 특성 -> 신선도 검사 면제
-    STALENESS_EXEMPT = {"KOSPI", "KOSDAQ"}
-
     for key, meta in records.items():
         if meta.get("value") is None:
             continue
-        if key in STALENESS_EXEMPT:
-            continue  # 주가지수 등 구조적 지연 허용 시리즈 -> 검사 건너뜀
         period = meta.get("period", "M")
         obs_date = meta.get("date", "N/A")
         try:
@@ -459,8 +453,8 @@ SERIES_NOTES = {
     "KB_JEONSE_YOY":       "전세가격 전년비. 주거비 부담 및 전세-매매 갭 모니터링",
     "HOUSING_START":       "주택착공지수. 건설경기 선행. 금리 인상 후 6~12개월 후행",
     # ── 금융시장 ──
-    "KOSPI":               "KOSPI 지수(ECOS 구조 지연 ~6-7개월). SIG12 전용 - 레짐 성장 제외",
-    "KOSDAQ":              "[참조전용] KOSDAQ 지수(ECOS 구조 지연 ~6-7개월). 추세·방향성 참고",
+    "KOSPI":               "KOSPI 지수(ECOS 802Y001 일별). SIG12 전용 - 레짐 성장 제외",
+    "KOSDAQ":              "[참조전용] KOSDAQ 지수(ECOS 802Y001 일별). 추세·방향성 참고",
     "USD_KRW":             "[참조전용] 원/달러 환율 월평균. 상승=원화 약세. 수입물가·외화부채 압박",
     "CD_BOK_SPREAD":       "CD-기준금리 스프레드(파생). 단기 유동성 프리미엄 확대 시 경계",
     "CREDIT_SPREAD":       "회사채BBB-국채3Y 스프레드(파생). 기업 신용 리스크 핵심 지표",
@@ -741,15 +735,6 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
             # 수입물가 YoY 극단값(25%+) 경고 플래그
             if k == "IMPORT_PRICE_YOY" and val is not None and abs(val) >= 25:
                 val_str += " ⚠️기저효과"
-            # KOSPI/KOSDAQ: ECOS 구조적 지연(~6-7개월) 안내
-            if k in ("KOSPI", "KOSDAQ") and val is not None and raw_date != "N/A":
-                try:
-                    from datetime import date as _date
-                    _obs = _date(int(raw_date[:4]), int(raw_date[4:6]), int(raw_date[6:8]))
-                    if (_date.today() - _obs).days > 90:
-                        val_str += " ℹ️ECOS구조지연"
-                except Exception:
-                    pass
 
             lines.append(
                 f"| {k} | {m['label']} | {val_str} | {m['unit']} | {date_str}"
@@ -762,8 +747,6 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
         "",
         "> **플래그 범례**",
         "> - ⚠️기저효과: 수입물가 YoY ≥25%, 관세충격·기저효과로 과대값 가능",
-        "> - ℹ️ECOS구조지연: KOSPI/KOSDAQ는 ECOS 게재 특성상 ~6-7개월 지연 수록. "
-        "기준일 참고 필수, 현재 시황 반영 아님",
         "",
         "> **비교 컬럼 범례**",
         "> - 전기비: M=전월차, D=전일차, Q=전분기차 (원계열 수준->절대차, YoY/QoQ->%p 차이)",

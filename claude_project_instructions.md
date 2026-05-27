@@ -65,7 +65,7 @@ ECOS + KOSIS API에서 매일 자동 수집된 **32개 지표 (ECOS 21 + KOSIS 1
 | SIG08 | 경기 사이클 | 동행·선행 순환변동치 (~2개월 지연) |
 | SIG09 | 산업생산 모멘텀 | 광공업생산 YoY |
 | SIG11 | 주택시장 | KB 매매·전세 YoY, 착공지수 |
-| SIG12 | KOSPI 레짐 | KOSPI (ECOS 지연, 레짐 성장 제외) |
+| SIG12 | KOSPI 레짐 | KOSPI (레짐 성장 제외, SIG12 전용) |
 
 > **미구현**: SIG04 기대인플레, **SIG10 수출 모멘텀**(KOSIS 관세청 API 미연동).
 

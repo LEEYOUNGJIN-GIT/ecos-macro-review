@@ -20,14 +20,15 @@ KOSIS API 키 발급: https://kosis.kr/openapi/
   - KOSIS_SERIES 튜플에 c1_filter(11번째) 추가: 동일 tblId 내 C1 코드로 지표 구분 시 사용
   - CPI/근원CPI/고용/경기지수 tblId·itmId·objL1 검증값으로 교체
     · CPI: DT_1J22003 / objL1=T10 / itmId=T (지수→yoy_pct)
-    · 근원CPI: DT_1J22007(농산물석유류제외) / objL1=T10 / itmId=T (지수→yoy_pct)
+    · 근원CPI: DT_1J22007 / objL1=ALL / c1_filter=QB (농산물·석유류 제외지수)
     · 고용: DT_1DA7002S / objL1=00 / itmId T80/T90/T60/T30 검증
     · 경기지수 순환변동치: DT_1C8016→DT_1C8015 교체, c1_filter B03/A03 추가
-  v1.3 (2026-05-27): 근원CPI objL1 수정 및 교차검증
-  - KOSIS_CORE_CPI_YOY: objL1 QC→T10 (DT_1J22007 전국 총지수, CPI와 동일 지역코드)
-    · QC는 DT_1J22003 내 분류코드로 DT_1J22007 전용 테이블에 부적합 → YoY 6.31% 오류 원인
+  v1.4 (2026-05-27): 근원CPI c1_filter 수정 (API 실측 검증)
+  - KOSIS_CORE_CPI_YOY: objL1=ALL + c1_filter=QB (농산물·석유류 제외지수, YoY≈2.19%)
+    · objL1=QC 또는 c1=QC는 '농산물·석유류'(포함분) → YoY 6.31% 오류 (v1.3 T10도 API ERR)
   - _validate_core_cpi(): |근원CPI−CPI| > 1.5%p 시 None 처리
-  - validate_tblids(): CPI·근원CPI YoY 교차검증 추가
+  - validate_tblids(): CPI·근원CPI YoY 교차검증 + c1_filter 반영
+  v1.3 (2026-05-27): 근원CPI objL1 수정 시도 (T10 → API ERR, 롤백)
   v1.2 (2026-05-27): 생산·소비 tblId 확정, 수출입 3종 제거
   - 광공업: DT_1F02011 / itmId=T10 / c1_filter=10 (yoy_pct)
   - 소매: DT_1K41012 / itmId=T2 / c1_filter=G0 (yoy_pct)
@@ -92,11 +93,10 @@ KOSIS_SERIES = [
     ("KOSIS_CPI_YOY",        "101", "DT_1J22003", "T",   "T10", "M",
      "%",     "소비자물가 전년동월비",              "yoy_pct",  "익월 7일",  None),
 
-    # DT_1J22007: 농산물및석유류제외지수(2020=100) - 통계청(101)
-    # objL1=T10(전국) — CPI(DT_1J22003)와 동일 지역코드. QC는 구 DT_1J22003 분류코드로 오류 유발
-    # ※ 한국 공식 근원CPI(농산물·석유류제외) 기준 — OECD방식(식품·에너지제외)과 상이
-    ("KOSIS_CORE_CPI_YOY",   "101", "DT_1J22007", "T",   "T10", "M",
-     "%",     "근원물가 전년동월비(농산물·석유류제외)", "yoy_pct",  "익월 7일",  None),
+    # DT_1J22007: 소비자물가지수(2020=100) — C1=QB(농산물·석유류 제외지수), C1=QC(농산물·석유류 포함분)
+    # ⚠ objL1=QC → C1=QC(포함분) YoY 6.31% 오류. c1_filter=QB → YoY≈2.19% (통계청 공식 근원CPI)
+    ("KOSIS_CORE_CPI_YOY",   "101", "DT_1J22007", "T",   "ALL", "M",
+     "%",     "근원물가 전년동월비(농산물·석유류제외)", "yoy_pct",  "익월 7일",  "QB"),
 
     # ── 02. 고용 ─────────────────────────────────────────────────────────
     # DT_1DA7002S: 경제활동인구조사 - 통계청(101)
@@ -139,7 +139,7 @@ KOSIS_SERIES = [
 # 지표별 해석 노트 (Claude 분석 컨텍스트 강화)
 # ---------------------------------------------------------------------------
 _FACT_ONLY   = "[참조전용] 신호/레짐 점수 미사용"
-_CORE_NOTE   = "통계청 농산물·석유류제외(구 ECOS QB와 동일 계열). OECD 식품·에너지제외와 정의 상이"
+_CORE_NOTE   = "통계청 농산물·석유류제외(구 ECOS QB와 동일 계열)"
 SERIES_NOTES: dict[str, str] = {
     "KOSIS_CPI_YOY":          "소비자물가 기준지표. 통계청 익월 초 발표. BOK 목표 2%",
     "KOSIS_CORE_CPI_YOY":     _CORE_NOTE,
@@ -445,9 +445,10 @@ def validate_tblids() -> None:
     cpi_entry  = next(e for e in KOSIS_SERIES if e[0] == "KOSIS_CPI_YOY")
     core_entry = next(e for e in KOSIS_SERIES if e[0] == "KOSIS_CORE_CPI_YOY")
     cpi_rows   = fetch_kosis_series(*cpi_entry[1:6])
+    core_c1    = core_entry[10] if len(core_entry) > 10 else None
     core_rows  = fetch_kosis_series(*core_entry[1:6])
     cpi_val,  _, _, _, _ = get_kosis_comparisons(cpi_rows,  "M", "yoy_pct", None)
-    core_val, _, _, _, _ = get_kosis_comparisons(core_rows, "M", "yoy_pct", None)
+    core_val, _, _, _, _ = get_kosis_comparisons(core_rows, "M", "yoy_pct", core_c1)
     if cpi_val is not None and core_val is not None:
         gap = abs(core_val - cpi_val)
         if gap <= CORE_CPI_MAX_GAP:
@@ -604,8 +605,7 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
         "",
         "> **출처**: 통계청(orgId=101) - KOSIS Open API",
         "> **[참조전용]**: 신호/레짐 점수 산정에 미사용, 분석 참고 전용",
-        "> **KOSIS_CORE_CPI_YOY**: 통계청 농산물·석유류제외(DT_1J22007). "
-        "OECD 식품·에너지제외와 정의 상이 — 수치 직접 비교 불가",
+        "> **KOSIS_CORE_CPI_YOY**: 통계청 농산물·석유류제외(DT_1J22007, C1=QB)",
         "",
         "---",
         "",

@@ -105,6 +105,13 @@ def fmt(v: float | None, decimals: int = 2) -> str:
     return f"{v:.{decimals}f}"
 
 
+def base_effect_note(chg_prev: float | None, threshold: float = 5.0) -> str:
+    """YoY 가속도 |chg_prev| > threshold 시 기저효과 경고."""
+    if chg_prev is not None and abs(chg_prev) > threshold:
+        return " ⚠️기저효과"
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # 5단계 위험 라벨
 # ---------------------------------------------------------------------------
@@ -261,12 +268,14 @@ def sig_06_domestic_demand(d: dict) -> dict:
     chg_vals = [v for v in [g(d, "KOSIS_RETAIL_YOY__chg_prev"),
                              g(d, "KOSIS_SERVICE_PROD_YOY__chg_prev")] if v is not None]
     chg_prev = round(float(np.mean(chg_vals)), 4) if chg_vals else None
+    svc_chg  = g(d, "KOSIS_SERVICE_PROD_YOY__chg_prev")
     return {
         "id": "SIG06", "name": "내수·소비",
         "value": composite, "unit": "% YoY (소매·서비스 복합)",
         "date": gdate(d, "KOSIS_RETAIL_YOY"),
         "chg_prev": chg_prev, "chg_unit": "%p",
-        "detail": (f"소매판매YoY({fmt(retail)}%) / 서비스업생산YoY({fmt(svc)}%) "
+        "detail": (f"소매판매YoY({fmt(retail)}%) / 서비스업생산YoY({fmt(svc)}%)"
+                   f"{base_effect_note(svc_chg)} "
                    f"→ 복합 {fmt(composite)}% [통계청 KOSIS, 익월 말 발표]"),
         "threshold": "복합 YoY <-2% 경계 / <-5% 위험 / 서비스 동반 부진 시 복합 신호",
         "score": score,
@@ -326,7 +335,8 @@ def sig_09_industrial_production(d: dict) -> dict:
         "value": indpro, "unit": "% YoY (광공업생산)",
         "date": gdate(d, "KOSIS_INDPRO_YOY"),
         "chg_prev": chg_prev, "chg_unit": "%p",
-        "detail": f"광공업생산지수 전년비({fmt(indpro)}%) [통계청 KOSIS, 익월 말 발표]",
+        "detail": (f"광공업생산지수 전년비({fmt(indpro)}%)"
+                   f"{base_effect_note(chg_prev)} [통계청 KOSIS, 익월 말 발표]"),
         "threshold": "YoY <-5% 경계 / <-10% 위험 / >10% 호조",
         "score": score,
     }
@@ -358,15 +368,15 @@ def sig_11_housing_market(d: dict) -> dict:
 def sig_12_kospi_regime(d: dict) -> dict:
     """12. KOSPI 레짐 (SIG12 전용 — 레짐 성장 점수 제외)"""
     kospi  = g(d, "KOSPI")
-    score  = score_0_10(kospi, 3000.0, 10000.0, invert=True) if kospi is not None else None
+    score  = score_0_10(kospi, 5000.0, 12000.0, invert=True) if kospi is not None else None
     chg_prev = g(d, "KOSPI__chg_prev")
     return {
         "id": "SIG12", "name": "KOSPI 레짐",
         "value": kospi, "unit": "pt",
         "date": gdate(d, "KOSPI"),
         "chg_prev": chg_prev, "chg_unit": "pt",
-        "detail": f"KOSPI({fmt(kospi, 0)}pt) [ECOS 구조 지연 ~6-7개월, SIG12 전용]",
-        "threshold": "KOSPI <4000 하락 경계 / <3000 약세장 / <2500 심각 (2026년 기준)",
+        "detail": f"KOSPI({fmt(kospi, 0)}pt) [ECOS 802Y001 일별, SIG12 전용]",
+        "threshold": "KOSPI <6000 하락 경계 / <5000 약세장 / <4000 심각 (2026년 ~8000pt 기준)",
         "score": score,
     }
 
