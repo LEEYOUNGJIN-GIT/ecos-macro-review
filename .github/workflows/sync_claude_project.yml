@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Sync ECOS .md files to Claude Project
+      - name: Sync data files to Claude Project
         env:
           CLAUDE_SESSION_KEY: ${{ secrets.CLAUDE_SESSION_KEY }}
           CLAUDE_ORG_ID: ${{ secrets.CLAUDE_ORG_ID }}
@@ -42,10 +42,11 @@ jobs:
           }
 
           FILES = [
-              ("ecos_latest.md",  "data/ecos_latest.md"),
-              ("kosis_latest.md", "data/kosis_latest.md"),
-              ("ecos_regime.md",  "data/ecos_regime.md"),
-              ("ecos_signals.md", "data/ecos_signals.md"),
+              ("ecos_latest.md",    "data/ecos_latest.md"),
+              ("kosis_latest.md",   "data/kosis_latest.md"),
+              ("ecos_regime.md",    "data/ecos_regime.md"),
+              ("ecos_signals.md",   "data/ecos_signals.md"),
+              ("macro_latest.csv",  "data/macro_latest.csv"),
           ]
           target_names = {f[0] for f in FILES}
 
@@ -62,7 +63,7 @@ jobs:
           existing = r.json()
           print(f"현재 프로젝트 문서 수: {len(existing)}")
 
-          # ECOS/KOSIS 파일만 삭제 (다른 파일은 건드리지 않음)
+          # 동기화 대상 파일만 삭제 (다른 파일은 건드리지 않음)
           for doc in existing:
               name = doc.get("file_name", "")
               if name in target_names:
@@ -89,5 +90,5 @@ jobs:
                   print(r.text[:300])
                   sys.exit(1)
 
-          print("ECOS + KOSIS sync complete!")
+          print("ECOS + KOSIS + macro sync complete!")
           PYEOF
