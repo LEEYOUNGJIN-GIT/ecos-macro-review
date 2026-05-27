@@ -1,25 +1,29 @@
 """
 scripts/ecos_regime.py
-data/ecos_latest.csv 를 읽어 성장·인플레이션 점수를 계산하고
+data/macro_latest.csv 를 읽어 성장·인플레이션 점수를 계산하고
 2×2 매크로 레짐을 분류한 뒤 data/ecos_regime.md 를 생성합니다.
+
+v3.0 (2026-05-27): ECOS+KOSIS 통합 플랜 v1
+  - INPUT_CSV: ecos_latest.csv → macro_latest.csv
+  - 성장 점수: 6개→5개 요소, KOSPI 제거
+      (KOSPI: ECOS 구조 지연 ~7개월 + 시장 선행지표 성격 → SIG12에서 별도 모니터링)
+  - 인플레 점수: EMPLOYMENT_CHANGE(천명) → KOSIS_RETAIL_YOY(% YoY)
+      (단위 이질성 해소: 모든 인플레 요소 % 단위로 통일)
+  - series_id 키 매핑 9개: KOSIS_ 접두사로 전환
+  - 컴포넌트 튜플에 date 필드 추가 (9번째)
+  - build_md() 성장·인플레 테이블에 기준일 컬럼 추가
+  - 보고서 footer → ECOS + KOSIS 출처 반영
 
 v2.5 (2026-05-27):
   - load_data(): chg_prev / chg_yoy 컬럼 로딩 추가
   - compute_growth/inflation_score(): 컴포넌트 튜플에 chg_prev/chg_yoy 추가
   - build_md(): 성장·인플레 점수 테이블에 전기비/YoY비 컬럼 추가
-  - fmt_chg() 헬퍼 추가
 
 v2.2 (2026-05-26):
-  - CORE_CPI_YOY 데이터 정정(item "11"=신선어개 → "QB"=농산물및석유류제외지수)으로
-    인플레이션 점수 자동 개선 (4.18% → 2.19% YoY 정정)
-  - 인플레이션 점수 구성 요소에서 HOUSE_PRICE 관련 오류 데이터 영향 제거
-    (해당 시리즈는 ecos_fetch.py에서 제거)
+  - CORE_CPI_YOY 데이터 정정으로 인플레이션 점수 자동 개선
 
 v2.1 (2026-05-26):
   - 성장 점수에 INDPRO_YOY(광공업생산 전년비, weight 1.0) 추가 → 6개 요소
-  - KOSPI 범위 조정: (1800, 3200) → (2500, 8500) (2026년 시장 수준 반영)
-  - IMPORT_PRICE_YOY 범위 확대: (-10, 15) → (-20, 40)으로 변경
-    (403Y005/B 수입물가지수 YoY가 30%+ 수준도 커버하도록)
 
 레짐 매트릭스:
         인플레 ↑ (>5)
@@ -43,11 +47,11 @@ import numpy as np
 
 _KST = ZoneInfo("Asia/Seoul")
 
-DATA_DIR = Path(__file__).parent.parent / "data"
-INPUT_CSV = DATA_DIR / "ecos_latest.csv"
-OUTPUT_MD = DATA_DIR / "ecos_regime.md"
+DATA_DIR   = Path(__file__).parent.parent / "data"
+INPUT_CSV  = DATA_DIR / "macro_latest.csv"
+OUTPUT_MD  = DATA_DIR / "ecos_regime.md"
 
-GROWTH_THRESHOLD = 5.0
+GROWTH_THRESHOLD    = 5.0
 INFLATION_THRESHOLD = 5.0
 
 
@@ -56,7 +60,10 @@ INFLATION_THRESHOLD = 5.0
 # ---------------------------------------------------------------------------
 def load_data() -> dict[str, float | None]:
     if not INPUT_CSV.exists():
-        sys.exit(f"[ERROR] {INPUT_CSV} 파일이 없습니다. ecos_fetch.py를 먼저 실행하세요.")
+        sys.exit(
+            f"[ERROR] {INPUT_CSV} 파일이 없습니다. "
+            "ecos_fetch.py → kosis_fetch.py → merge_macro.py 순서로 실행하세요."
+        )
     df = pd.read_csv(INPUT_CSV, encoding="utf-8-sig")
     values = dict(zip(df["series_id"], pd.to_numeric(df["value"], errors="coerce")))
     for _, row in df.iterrows():
@@ -78,6 +85,15 @@ def g(data: dict, key: str) -> float | None:
     return None if (v is None or (isinstance(v, float) and np.isnan(v))) else v
 
 
+def gdate(data: dict, series_id: str) -> str:
+    raw = str(data.get(f"{series_id}__date", "N/A"))
+    if len(raw) == 6 and raw.isdigit():
+        return f"{raw[:4]}-{raw[4:]}"
+    if len(raw) == 8 and raw.isdigit():
+        return f"{raw[:4]}-{raw[4:6]}-{raw[6:]}"
+    return raw
+
+
 def score_component(
     value: float | None,
     low: float,
@@ -85,17 +101,16 @@ def score_component(
     weight: float = 1.0,
     invert: bool = False,
 ) -> tuple[float | None, float]:
-    """[low, high] 구간에서 0-10 정규화 후 weight 반환."""
     if value is None:
         return None, weight
     clipped = max(low, min(high, value))
-    raw = (clipped - low) / (high - low) * 10.0
-    scored = 10.0 - raw if invert else raw
+    raw     = (clipped - low) / (high - low) * 10.0
+    scored  = 10.0 - raw if invert else raw
     return round(scored, 4), weight
 
 
 def weighted_mean(pairs: list[tuple[float | None, float]]) -> float | None:
-    valid = [(v, w) for v, w in pairs if v is not None]
+    valid   = [(v, w) for v, w in pairs if v is not None]
     if not valid:
         return None
     total_w = sum(w for _, w in valid)
@@ -107,7 +122,6 @@ def fmt(v: float | None, d: int = 2) -> str:
 
 
 def fmt_chg(chg: float | None) -> str:
-    """변화량을 부호 포함 문자열로 포맷."""
     if chg is None:
         return "-"
     av = abs(chg)
@@ -121,47 +135,56 @@ def fmt_chg(chg: float | None) -> str:
 
 # ---------------------------------------------------------------------------
 # 성장 점수 (0-10, 높을수록 강한 성장)
-# 6개 요소 (소거: RETAIL_SALES_YOY·CSI — API 데이터 부재)
+# 5개 요소 — KOSPI 제거 (v3.0)
 # ---------------------------------------------------------------------------
 def compute_growth_score(data: dict) -> dict:
-    """성장 점수 계산. 컴포넌트 튜플: (key, label, val, unit, chg_prev, chg_yoy, score, weight)"""
+    """성장 점수 계산.
+    컴포넌트 튜플: (key, label, val, unit, chg_prev, chg_yoy, score, weight, date)
+    """
     components = []
 
-    # 1. 실질 GDP YoY (weight 2.0) — 범위 (-2.0, 8.0)으로 확대 (2026Q1 6.42% 클리핑 해소)
+    # 1. 실질 GDP YoY (weight 2.0) — 잠재성장률 대비 위치
     gdp = g(data, "GDP_GROWTH_YOY")
     s, w = score_component(gdp, -2.0, 8.0, weight=2.0)
     components.append(("GDP_GROWTH_YOY", "실질GDP 전년비", gdp, "%",
-                        g(data, "GDP_GROWTH_YOY__chg_prev"), g(data, "GDP_GROWTH_YOY__chg_yoy"), s, w))
+                        g(data, "GDP_GROWTH_YOY__chg_prev"),
+                        g(data, "GDP_GROWTH_YOY__chg_yoy"),
+                        s, w, gdate(data, "GDP_GROWTH_YOY")))
 
-    # 2. 고용률 (weight 1.0)
-    emp = g(data, "EMPLOYMENT_RATE")
+    # 2. 고용률 (weight 1.0) — KOSIS 통계청
+    emp = g(data, "KOSIS_EMP_RATE")
     s, w = score_component(emp, 58.0, 65.0, weight=1.0)
-    components.append(("EMPLOYMENT_RATE", "고용률", emp, "%",
-                        g(data, "EMPLOYMENT_RATE__chg_prev"), g(data, "EMPLOYMENT_RATE__chg_yoy"), s, w))
+    components.append(("KOSIS_EMP_RATE", "고용률(15세이상)", emp, "%",
+                        g(data, "KOSIS_EMP_RATE__chg_prev"),
+                        g(data, "KOSIS_EMP_RATE__chg_yoy"),
+                        s, w, gdate(data, "KOSIS_EMP_RATE")))
 
-    # 3. 경기동행지수 순환변동치 (weight 1.5)
-    coin = g(data, "CLI_COINCIDENT")
+    # 3. 경기동행지수 순환변동치 (weight 1.5) — KOSIS 통계청, 약 2개월 지연
+    coin = g(data, "KOSIS_CLI_COINCIDENT")
     s, w = score_component(coin, 94.0, 104.0, weight=1.5)
-    components.append(("CLI_COINCIDENT", "경기동행지수순환변동", coin, "지수",
-                        g(data, "CLI_COINCIDENT__chg_prev"), g(data, "CLI_COINCIDENT__chg_yoy"), s, w))
+    components.append(("KOSIS_CLI_COINCIDENT", "경기동행지수순환변동", coin, "지수",
+                        g(data, "KOSIS_CLI_COINCIDENT__chg_prev"),
+                        g(data, "KOSIS_CLI_COINCIDENT__chg_yoy"),
+                        s, w, gdate(data, "KOSIS_CLI_COINCIDENT")))
 
-    # 4. 경기선행지수 순환변동치 (weight 1.5)
-    lead = g(data, "CLI_LEADING")
+    # 4. 경기선행지수 순환변동치 (weight 1.5) — KOSIS 통계청, 약 2개월 지연
+    lead = g(data, "KOSIS_CLI_LEADING")
     s, w = score_component(lead, 94.0, 104.0, weight=1.5)
-    components.append(("CLI_LEADING", "경기선행지수순환변동", lead, "지수",
-                        g(data, "CLI_LEADING__chg_prev"), g(data, "CLI_LEADING__chg_yoy"), s, w))
+    components.append(("KOSIS_CLI_LEADING", "경기선행지수순환변동", lead, "지수",
+                        g(data, "KOSIS_CLI_LEADING__chg_prev"),
+                        g(data, "KOSIS_CLI_LEADING__chg_yoy"),
+                        s, w, gdate(data, "KOSIS_CLI_LEADING")))
 
-    # 5. KOSPI (weight 1.0) — 범위 2500~8500으로 조정 (2026년 시장 수준 반영)
-    kospi = g(data, "KOSPI")
-    s, w = score_component(kospi, 2500.0, 8500.0, weight=1.0)
-    components.append(("KOSPI", "KOSPI 지수", kospi, "pt",
-                        g(data, "KOSPI__chg_prev"), g(data, "KOSPI__chg_yoy"), s, w))
-
-    # 6. 광공업생산 YoY (weight 1.0) — 실물 생산 활동 반영
-    indpro = g(data, "INDPRO_YOY")
+    # 5. 광공업생산 YoY (weight 1.0) — KOSIS 통계청, 실물 생산 활동
+    indpro = g(data, "KOSIS_INDPRO_YOY")
     s, w = score_component(indpro, -10.0, 15.0, weight=1.0)
-    components.append(("INDPRO_YOY", "광공업생산 전년비", indpro, "%",
-                        g(data, "INDPRO_YOY__chg_prev"), g(data, "INDPRO_YOY__chg_yoy"), s, w))
+    components.append(("KOSIS_INDPRO_YOY", "광공업생산 전년비", indpro, "%",
+                        g(data, "KOSIS_INDPRO_YOY__chg_prev"),
+                        g(data, "KOSIS_INDPRO_YOY__chg_yoy"),
+                        s, w, gdate(data, "KOSIS_INDPRO_YOY")))
+
+    # KOSPI 제거 이유: ECOS 구조 지연 ~7개월 + 시장 선행지표 성격
+    # → SIG12 에서 별도 모니터링
 
     pairs = [(c[6], c[7]) for c in components]
     total = weighted_mean(pairs)
@@ -170,44 +193,54 @@ def compute_growth_score(data: dict) -> dict:
 
 # ---------------------------------------------------------------------------
 # 인플레이션 점수 (0-10, 높을수록 강한 인플레이션)
-# 5개 요소
+# 5개 요소 — % 단위 완전 통일 (v3.0)
 # ---------------------------------------------------------------------------
 def compute_inflation_score(data: dict) -> dict:
-    """인플레이션 점수 계산. 컴포넌트 튜플: (key, label, val, unit, chg_prev, chg_yoy, score, weight)"""
+    """인플레이션 점수 계산.
+    컴포넌트 튜플: (key, label, val, unit, chg_prev, chg_yoy, score, weight, date)
+    """
     components = []
 
-    # 1. CPI YoY (weight 2.0)
-    cpi = g(data, "CPI_YOY")
+    # 1. CPI YoY (weight 2.0) — KOSIS 통계청, BOK 목표 2%
+    cpi = g(data, "KOSIS_CPI_YOY")
     s, w = score_component(cpi, -0.5, 6.0, weight=2.0)
-    components.append(("CPI_YOY", "소비자물가 전년비", cpi, "%",
-                        g(data, "CPI_YOY__chg_prev"), g(data, "CPI_YOY__chg_yoy"), s, w))
+    components.append(("KOSIS_CPI_YOY", "소비자물가 전년비", cpi, "%",
+                        g(data, "KOSIS_CPI_YOY__chg_prev"),
+                        g(data, "KOSIS_CPI_YOY__chg_yoy"),
+                        s, w, gdate(data, "KOSIS_CPI_YOY")))
 
-    # 2. 근원 CPI YoY (weight 2.0)
-    core = g(data, "CORE_CPI_YOY")
+    # 2. 근원CPI YoY (weight 2.0) — KOSIS OECD방식(식품·에너지제외)
+    core = g(data, "KOSIS_CORE_CPI_YOY")
     s, w = score_component(core, 0.0, 5.0, weight=2.0)
-    components.append(("CORE_CPI_YOY", "근원CPI 전년비", core, "%",
-                        g(data, "CORE_CPI_YOY__chg_prev"), g(data, "CORE_CPI_YOY__chg_yoy"), s, w))
+    components.append(("KOSIS_CORE_CPI_YOY", "근원CPI 전년비(KOSIS OECD방식)", core, "%",
+                        g(data, "KOSIS_CORE_CPI_YOY__chg_prev"),
+                        g(data, "KOSIS_CORE_CPI_YOY__chg_yoy"),
+                        s, w, gdate(data, "KOSIS_CORE_CPI_YOY")))
 
-    # 3. PPI YoY (weight 1.5)
+    # 3. PPI YoY (weight 1.5) — ECOS 한국은행
     ppi = g(data, "PPI_YOY")
     s, w = score_component(ppi, -3.0, 8.0, weight=1.5)
     components.append(("PPI_YOY", "생산자물가 전년비", ppi, "%",
-                        g(data, "PPI_YOY__chg_prev"), g(data, "PPI_YOY__chg_yoy"), s, w))
+                        g(data, "PPI_YOY__chg_prev"),
+                        g(data, "PPI_YOY__chg_yoy"),
+                        s, w, gdate(data, "PPI_YOY")))
 
-    # 4. 수입물가 YoY (weight 1.0) — 403Y005/B 수입품물가지수 기반, 범위 확대 적용
+    # 4. 수입물가 YoY (weight 1.0) — ECOS 403Y005/B 수입품물가지수
     imp = g(data, "IMPORT_PRICE_YOY")
     s, w = score_component(imp, -20.0, 40.0, weight=1.0)
     components.append(("IMPORT_PRICE_YOY", "수입물가 전년비", imp, "%",
-                        g(data, "IMPORT_PRICE_YOY__chg_prev"), g(data, "IMPORT_PRICE_YOY__chg_yoy"), s, w))
+                        g(data, "IMPORT_PRICE_YOY__chg_prev"),
+                        g(data, "IMPORT_PRICE_YOY__chg_yoy"),
+                        s, w, gdate(data, "IMPORT_PRICE_YOY")))
 
-    # 5. 취업자 증감 (weight 1.0)
-    # 임금 데이터가 ECOS에 없어 고용 증감으로 노동수요 압력을 간접 반영.
-    # 고용 증가 ≠ 임금 인플레이션이므로 해석 시 한계 유의.
-    # chg_prev = 전월 대비 취업자증감 변화분 (천명), 단위 주의: "두 번째 차분"
-    emp_chg = g(data, "EMPLOYMENT_CHANGE")
-    s, w = score_component(emp_chg, -100.0, 500.0, weight=1.0)
-    components.append(("EMPLOYMENT_CHANGE", "취업자수 증감(임금압력 대용)", emp_chg, "천명",
-                        g(data, "EMPLOYMENT_CHANGE__chg_prev"), g(data, "EMPLOYMENT_CHANGE__chg_yoy"), s, w))
+    # 5. 소매판매 YoY (weight 1.0) — KOSIS 통계청
+    # 구 EMPLOYMENT_CHANGE(천명) 교체: 단위 이질성 해소, 모든 요소 % 단위 통일
+    retail = g(data, "KOSIS_RETAIL_YOY")
+    s, w   = score_component(retail, -5.0, 15.0, weight=1.0)
+    components.append(("KOSIS_RETAIL_YOY", "소매판매 전년비(내수 수요압력)", retail, "%",
+                        g(data, "KOSIS_RETAIL_YOY__chg_prev"),
+                        g(data, "KOSIS_RETAIL_YOY__chg_yoy"),
+                        s, w, gdate(data, "KOSIS_RETAIL_YOY")))
 
     pairs = [(c[6], c[7]) for c in components]
     total = weighted_mean(pairs)
@@ -264,9 +297,9 @@ def classify_regime(growth_score: float | None, inflation_score: float | None) -
             "implication": "충분한 데이터가 수집된 후 재시도하세요.",
             "asset_hint": "N/A",
         }
-    g_state = "high" if growth_score > GROWTH_THRESHOLD else "low"
+    g_state = "high" if growth_score    > GROWTH_THRESHOLD    else "low"
     i_state = "high" if inflation_score > INFLATION_THRESHOLD else "low"
-    regime = REGIMES[(g_state, i_state)].copy()
+    regime  = REGIMES[(g_state, i_state)].copy()
     regime["key"] = (g_state, i_state)
     return regime
 
@@ -280,11 +313,11 @@ def build_md(
     regime: dict,
     generated_at: str,
 ) -> str:
-    gs = growth["score"]
+    gs  = growth["score"]
     is_ = inflation["score"]
 
     lines = [
-        "# ECOS 매크로 레짐 분류 보고서",
+        "# ECOS + KOSIS 매크로 레짐 분류 보고서",
         "",
         f"**생성일시**: {generated_at} (KST)",
         "",
@@ -294,8 +327,10 @@ def build_md(
         "",
         f"| 구분 | 점수 (0-10) | 판정 |",
         f"|-----|-----------|-----|",
-        f"| 성장 점수 | **{fmt(gs)}** | {'강함 (>5)' if gs is not None and gs > GROWTH_THRESHOLD else '약함 (≤5)'} |",
-        f"| 인플레이션 점수 | **{fmt(is_)}** | {'높음 (>5)' if is_ is not None and is_ > INFLATION_THRESHOLD else '낮음 (≤5)'} |",
+        f"| 성장 점수 | **{fmt(gs)}** | "
+        f"{'강함 (>5)' if gs is not None and gs > GROWTH_THRESHOLD else '약함 (≤5)'} |",
+        f"| 인플레이션 점수 | **{fmt(is_)}** | "
+        f"{'높음 (>5)' if is_ is not None and is_ > INFLATION_THRESHOLD else '낮음 (≤5)'} |",
         "",
         f"### 레짐: {regime['name']} ({regime['kor']})",
         "",
@@ -331,47 +366,51 @@ def build_md(
         "",
         "---",
         "",
-        "## 성장 점수 상세 (가중평균)",
+        "## 성장 점수 상세 (가중평균, 5개 요소)",
         "",
-        "> 전기비·YoY비: % 지표는 YoY율 가속도(%p), 지수/pt 지표는 절대 변화",
+        "> 전기비·YoY비: % 지표는 YoY율 가속도(%p), 지수 지표는 절대 변화",
+        "> KOSPI 제외: ECOS 구조 지연 ~7개월, SIG12 에서 별도 모니터링",
         "",
-        "| 지표 | 값 | 단위 | 전기비 | YoY비 | 성장 점수 기여 (0-10) | 가중치 |",
-        "|-----|---|-----|------|------|---------------------|------|",
+        "| 지표 | 값 | 단위 | 기준일 | 전기비 | YoY비 | 성장 점수 기여 (0-10) | 가중치 |",
+        "|-----|---|-----|------|------|------|---------------------|------|",
     ]
 
-    for key, label, val, unit, chg_prev, chg_yoy, score, weight in growth["components"]:
+    for key, label, val, unit, chg_prev, chg_yoy, score, weight, obs_date in growth["components"]:
         lines.append(
             f"| {label} | {fmt(val)} | {unit}"
-            f" | {fmt_chg(chg_prev)} | {fmt_chg(chg_yoy)}"
+            f" | {obs_date} | {fmt_chg(chg_prev)} | {fmt_chg(chg_yoy)}"
             f" | {fmt(score)} | {weight} |"
         )
 
     lines += [
-        f"| **종합 성장 점수** | | | | | **{fmt(gs)}** | — |",
+        f"| **종합 성장 점수** | | | | | | **{fmt(gs)}** | — |",
         "",
         "---",
         "",
-        "## 인플레이션 점수 상세 (가중평균)",
+        "## 인플레이션 점수 상세 (가중평균, 5개 요소)",
         "",
-        "> 전기비·YoY비: % 지표는 YoY율 가속도(%p), 취업자증감(천명)은 증감폭 변화분",
+        "> 전기비·YoY비: % 지표는 YoY율 가속도(%p)",
+        "> 5번째 요소: 소매판매 YoY — 구 취업자수 증감(천명) 교체로 단위 통일",
         "",
-        "| 지표 | 값 | 단위 | 전기비 | YoY비 | 인플레 점수 기여 (0-10) | 가중치 |",
-        "|-----|---|-----|------|------|----------------------|------|",
+        "| 지표 | 값 | 단위 | 기준일 | 전기비 | YoY비 | 인플레 점수 기여 (0-10) | 가중치 |",
+        "|-----|---|-----|------|------|------|----------------------|------|",
     ]
 
-    for key, label, val, unit, chg_prev, chg_yoy, score, weight in inflation["components"]:
+    for key, label, val, unit, chg_prev, chg_yoy, score, weight, obs_date in inflation["components"]:
         lines.append(
             f"| {label} | {fmt(val)} | {unit}"
-            f" | {fmt_chg(chg_prev)} | {fmt_chg(chg_yoy)}"
+            f" | {obs_date} | {fmt_chg(chg_prev)} | {fmt_chg(chg_yoy)}"
             f" | {fmt(score)} | {weight} |"
         )
 
     lines += [
-        f"| **종합 인플레 점수** | | | | | **{fmt(is_)}** | — |",
+        f"| **종합 인플레 점수** | | | | | | **{fmt(is_)}** | — |",
         "",
         "---",
         "",
-        "> 출처: 한국은행 ECOS API | 본 보고서는 자동 생성되며 투자 권고가 아닙니다.",
+        "> ※ KOSPI는 레짐 성장 점수 제외 (SIG12에서 별도 모니터링)",
+        "> 출처: 한국은행 ECOS API + 통계청·관세청 KOSIS API | "
+        "본 보고서는 자동 생성되며 투자 권고가 아닙니다.",
     ]
 
     return "\n".join(lines)
@@ -382,14 +421,14 @@ def build_md(
 # ---------------------------------------------------------------------------
 def main() -> None:
     print("=" * 60)
-    print("ECOS 레짐 분류 보고서 생성 시작")
+    print("레짐 분류 보고서 생성 시작 (ECOS + KOSIS)")
     print("=" * 60)
 
     data = load_data()
 
-    growth = compute_growth_score(data)
+    growth    = compute_growth_score(data)
     inflation = compute_inflation_score(data)
-    regime = classify_regime(growth["score"], inflation["score"])
+    regime    = classify_regime(growth["score"], inflation["score"])
 
     print(f"\n  성장 점수:      {fmt(growth['score'])} / 10.0")
     print(f"  인플레 점수:    {fmt(inflation['score'])} / 10.0")

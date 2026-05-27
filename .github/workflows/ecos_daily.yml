@@ -39,10 +39,18 @@ jobs:
         run: pip install -r requirements.txt
 
       # ── 1단계: 원천 데이터 수집 ──────────────────────────────────────────
-      - name: Step 1 - Fetch ECOS data
+      - name: Step 1a - Fetch ECOS data (21개 지표)
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         run: python ecos_fetch.py
+
+      - name: Step 1b - Fetch KOSIS data (14개 지표)
+        env:
+          KOSIS_API_KEY: ${{ secrets.KOSIS_API_KEY }}
+        run: python kosis_fetch.py
+
+      - name: Step 1c - Merge ECOS + KOSIS → macro_latest.csv
+        run: python scripts/merge_macro.py
 
       # ── 2단계: 신호 대시보드 생성 ─────────────────────────────────────────
       - name: Step 2 - Generate signals dashboard

@@ -1,4 +1,4 @@
-name: Sync ECOS to Claude Project
+name: Sync ECOS+KOSIS to Claude Project
 
 on:
   workflow_run:
@@ -43,6 +43,7 @@ jobs:
 
           FILES = [
               ("ecos_latest.md",  "data/ecos_latest.md"),
+              ("kosis_latest.md", "data/kosis_latest.md"),
               ("ecos_regime.md",  "data/ecos_regime.md"),
               ("ecos_signals.md", "data/ecos_signals.md"),
           ]
@@ -61,7 +62,7 @@ jobs:
           existing = r.json()
           print(f"현재 프로젝트 문서 수: {len(existing)}")
 
-          # ECOS 파일만 삭제 (fred 파일은 건드리지 않음)
+          # ECOS/KOSIS 파일만 삭제 (다른 파일은 건드리지 않음)
           for doc in existing:
               name = doc.get("file_name", "")
               if name in target_names:
@@ -88,5 +89,5 @@ jobs:
                   print(r.text[:300])
                   sys.exit(1)
 
-          print("ECOS sync complete!")
+          print("ECOS + KOSIS sync complete!")
           PYEOF
