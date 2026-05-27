@@ -3,60 +3,60 @@ ecos_fetch.py
 한국은행 ECOS API에서 21개 거시경제 지표를 수집하고
 data/ecos_latest.csv 및 data/ecos_latest.md 를 생성합니다.
 
-KOSIS 이관 완료 시리즈 (v3.0 — kosis_fetch.py 로 이전):
-  CPI_YOY, CORE_CPI_YOY         → KOSIS_CPI_YOY, KOSIS_CORE_CPI_YOY
-  CLI_COINCIDENT, CLI_LEADING   → KOSIS_CLI_COINCIDENT, KOSIS_CLI_LEADING
-  INDPRO_YOY                    → KOSIS_INDPRO_YOY
+KOSIS 이관 완료 시리즈 (v3.0 - kosis_fetch.py 로 이전):
+  CPI_YOY, CORE_CPI_YOY         -> KOSIS_CPI_YOY, KOSIS_CORE_CPI_YOY
+  CLI_COINCIDENT, CLI_LEADING   -> KOSIS_CLI_COINCIDENT, KOSIS_CLI_LEADING
+  INDPRO_YOY                    -> KOSIS_INDPRO_YOY (DT_1F02011)
   UNEMPLOYMENT_RATE, EMPLOYMENT_CHANGE,
-  LABOR_PARTICIPATION, EMPLOYMENT_RATE → KOSIS_UNEMP_RATE, KOSIS_EMP_CHANGE,
+  LABOR_PARTICIPATION, EMPLOYMENT_RATE -> KOSIS_UNEMP_RATE, KOSIS_EMP_CHANGE,
                                           KOSIS_LABOR_PART, KOSIS_EMP_RATE
-  EXPORT_YOY, IMPORT_YOY        → KOSIS_EXPORT_YOY, KOSIS_IMPORT_YOY
+  EXPORT_YOY, IMPORT_YOY        -> KOSIS 이관 시도 후 v1.2 제거 (관세청 API tblId 미확인)
 
 소거된 시리즈 (API 데이터 부재 확인):
-  BSI_ALL       (512Y014/99988)  — 최신 데이터 2023-05 (25개월 지연, ECOS 업데이트 중단)
-  CSI           (511Y004/FMAA)   — 최신 데이터 2022-08 (33개월 지연, 서비스 구조 변경 추정)
-  RETAIL_SALES_YOY (402Y015/*AA) — 최신 데이터 2024-10 (7개월 지연) + item_code 오류 이력
+  BSI_ALL       (512Y014/99988)  - 최신 데이터 2023-05 (25개월 지연, ECOS 업데이트 중단)
+  CSI           (511Y004/FMAA)   - 최신 데이터 2022-08 (33개월 지연, 서비스 구조 변경 추정)
+  RETAIL_SALES_YOY (402Y015/*AA) - 최신 데이터 2024-10 (7개월 지연) + item_code 오류 이력
 
 수정 이력:
   v2.2 (2026-05-26):
-  - CORE_CPI_YOY 항목코드 수정: "11"(신선어개, 완전 오류) → "QB"(농산물및석유류제외지수)
+  - CORE_CPI_YOY 항목코드 수정: "11"(신선어개, 완전 오류) -> "QB"(농산물및석유류제외지수)
     ("11"은 신선어개 가격지수임. 한국 근원CPI 공식 기준(농산물·석유류 제외)으로 정정)
   - 잘못된 주택 시리즈 3개 제거 (901Y092: 성질별 수출입 무역 데이터였음, 주택과 무관)
-      HOUSE_PRICE_BUY  (901Y092/E100) → 실제 수출금액합계(천달러), 주택 아님
-      HOUSE_PRICE_RENT (901Y092/I100) → 실제 수입금액합계(천달러), 주택 아님
-      APT_PRICE_BUY    (901Y092/E101) → 실제 수출세부항목(천달러), 주택 아님
-  - KB주택가격지수 추가: 901Y062/P63A (KB주택매매가격지수 총지수 2022.01=100 → YoY)
-  - KB전세가격지수 추가: 901Y063/P64A (KB주택전세가격지수 총지수 2022.01=100 → YoY)
-  - M2_YOY 추가: 161Y006/BBHA00 (M2 광의통화 평잔 원계열 → YoY)
+      HOUSE_PRICE_BUY  (901Y092/E100) -> 실제 수출금액합계(천달러), 주택 아님
+      HOUSE_PRICE_RENT (901Y092/I100) -> 실제 수입금액합계(천달러), 주택 아님
+      APT_PRICE_BUY    (901Y092/E101) -> 실제 수출세부항목(천달러), 주택 아님
+  - KB주택가격지수 추가: 901Y062/P63A (KB주택매매가격지수 총지수 2022.01=100 -> YoY)
+  - KB전세가격지수 추가: 901Y063/P64A (KB주택전세가격지수 총지수 2022.01=100 -> YoY)
+  - M2_YOY 추가: 161Y006/BBHA00 (M2 광의통화 평잔 원계열 -> YoY)
   - USD_KRW 추가: 731Y004/0000001/0000100 (원/달러 월평균 환율)
-  - CORP_LOAN(104Y014/BCA8=수신합계, 완전 오류) → BANK_LOANS(104Y016/BDCA1=총대출금)으로 교체
+  - CORP_LOAN(104Y014/BCA8=수신합계, 완전 오류) -> BANK_LOANS(104Y016/BDCA1=총대출금)으로 교체
     (BCA8는 예금은행 수신합계(예금)였음. 대출금 총계(BDCA1)로 정정)
   - IMPORT_YOY ≥30% 시 팩트테이블에 "기저효과" 경고 플래그 자동 표시
-  - GDP 성장 점수 정규화 범위 조정: (-3.0, 6.0) → (-2.0, 8.0) in ecos_regime.py
+  - GDP 성장 점수 정규화 범위 조정: (-3.0, 6.0) -> (-2.0, 8.0) in ecos_regime.py
     (2026Q1 실질GDP YoY 6.42%가 상한 6.0 초과로 매번 클리핑되던 문제 해소)
 
   v3.0 (2026-05-27):
   - KOSIS 이관: 물가(CPI, CORE_CPI), 경기지수(CLI), 생산(INDPRO),
-    고용(4개), 수출입(2개) → 총 11개 SERIES 제거, 21개 유지
+    고용(4개), 수출입(2개) -> 총 11개 SERIES 제거, 21개 유지
   - CATEGORY_MAP 정리: 02_물가(CPI제거), 03_GDP(CLI/INDPRO제거),
-    04_노동시장 제거, 07_수출입 제거 → 06개 카테고리 재편
+    04_노동시장 제거, 07_수출입 제거 -> 06개 카테고리 재편
 
   v2.5 (2026-05-27):
   - 전기비/중기비/YoY비 비교 컬럼 추가 (fred_fetch.py 패턴 이식)
       · COMPARE_PERIODS: 주기별 비교 인덱스 정의 (D/M/Q/A)
       · get_ecos_comparisons(): 단일 함수로 cur/prev/mid/yoy 값 통합 추출
-      · collect_all(): prev_val/mid_val/yoy_val → chg_prev/chg_mid/chg_yoy 컬럼 추가
+      · collect_all(): prev_val/mid_val/yoy_val -> chg_prev/chg_mid/chg_yoy 컬럼 추가
       · save_md(): 팩트 테이블에 전기비·중기비·YoY비 컬럼 추가
       · save_csv(): chg_prev/chg_mid/chg_yoy/note 컬럼 추가
-  - 기준일 포맷 개선: YYYYMM → YYYY-MM, YYYYMMDD → YYYY-MM-DD (MD 출력 전용)
+  - 기준일 포맷 개선: YYYYMM -> YYYY-MM, YYYYMMDD -> YYYY-MM-DD (MD 출력 전용)
   - 지표별 해석 노트(SERIES_NOTES) 추가 (Claude 분석 컨텍스트 강화)
 
   v2.1 (2026-05-26):
   - KOSPI/KOSDAQ 일별 조회 시작일을 today-2년에서 today-280일로 변경
-  - IMPORT_PRICE_YOY 시리즈 교체: 901Y013/A → 403Y005/B(수입물가지수 2020=100)
-  - 403Y001/403Y003 레이블 수정: "물량 전년비" → "금액 전년비"
-  - INDPRO_YOY 추가: 401Y015/*AA/C (광공업생산지수 원계열 2020=100 → YoY)
-  - 카테고리 번호 정비: 09_금융시장 → 08_금융시장
+  - IMPORT_PRICE_YOY 시리즈 교체: 901Y013/A -> 403Y005/B(수입물가지수 2020=100)
+  - 403Y001/403Y003 레이블 수정: "물량 전년비" -> "금액 전년비"
+  - INDPRO_YOY 추가: 401Y015/*AA/C (광공업생산지수 원계열 2020=100 -> YoY)
+  - 카테고리 번호 정비: 09_금융시장 -> 08_금융시장
 """
 
 import os
@@ -102,55 +102,55 @@ HISTORY_DIR.mkdir(exist_ok=True)
 # ---------------------------------------------------------------------------
 SERIES = [
     # ── 01. 금리·채권 ──────────────────────────────────────────────────────
-    # 722Y001: 한국은행 기준금리 및 여수신금리 (060Y001 오류 → 722Y001 수정)
+    # 722Y001: 한국은행 기준금리 및 여수신금리 (060Y001 오류 -> 722Y001 수정)
     ("BOK_BASE_RATE",       "722Y001", "M", "0101000", "%",    "한국은행 기준금리",         None),
     # 721Y001: 시장금리 (5020000=국고3Y, 5050000=국고10Y, 2010000=CD91일)
     ("GOV_BOND_3Y",         "721Y001", "M", "5020000", "%",    "국고채 3년",               None),
-    ("GOV_BOND_10Y",        "721Y001", "M", "5050000", "%",    "국고채 10년",              None),  # 5030000(1년) → 5050000(10년)
-    ("CD_91D",              "721Y001", "M", "2010000", "%",    "CD 91일",                  None),  # 0020000 → 2010000
-    ("CORP_BOND_AA_MINUS",  "721Y001", "M", "7020000", "%",    "회사채 AA-",               None),  # 4020000(CP) → 7020000(회사채AA-)
-    ("CORP_BOND_BBB_MINUS", "721Y001", "M", "7030000", "%",    "회사채 BBB-",              None),  # 4050000 → 7030000
+    ("GOV_BOND_10Y",        "721Y001", "M", "5050000", "%",    "국고채 10년",              None),  # 5030000(1년) -> 5050000(10년)
+    ("CD_91D",              "721Y001", "M", "2010000", "%",    "CD 91일",                  None),  # 0020000 -> 2010000
+    ("CORP_BOND_AA_MINUS",  "721Y001", "M", "7020000", "%",    "회사채 AA-",               None),  # 4020000(CP) -> 7020000(회사채AA-)
+    ("CORP_BOND_BBB_MINUS", "721Y001", "M", "7030000", "%",    "회사채 BBB-",              None),  # 4050000 -> 7030000
 
     # ── 02. 물가·인플레 ────────────────────────────────────────────────────
-    # CPI_YOY, CORE_CPI_YOY → KOSIS 이관 (kosis_fetch.py 참조)
-    # 901Y009: 생산자물가지수(2020=100) → 지수에서 전년비 계산
+    # CPI_YOY, CORE_CPI_YOY -> KOSIS 이관 (kosis_fetch.py 참조)
+    # 901Y009: 생산자물가지수(2020=100) -> 지수에서 전년비 계산
     ("PPI_YOY",             "901Y009", "M", "0",       "%",    "생산자물가 전년비",        "yoy_pct"),  # YoY계산
-    # 403Y005: 수출입물가지수(2020=100), B=수입품물가지수 → 지수에서 전년비 계산
-    # (구 901Y013/A는 수입금액 절대값으로 물가지수 아님 → 403Y005/B로 교체)
+    # 403Y005: 수출입물가지수(2020=100), B=수입품물가지수 -> 지수에서 전년비 계산
+    # (구 901Y013/A는 수입금액 절대값으로 물가지수 아님 -> 403Y005/B로 교체)
     ("IMPORT_PRICE_YOY",    "403Y005", "M", "B",       "%",    "수입물가 전년비",          "yoy_pct"),
 
     # ── 03. GDP ───────────────────────────────────────────────────────────
-    # CLI_COINCIDENT, CLI_LEADING, INDPRO_YOY → KOSIS 이관 (kosis_fetch.py 참조)
-    # BSI_ALL (512Y014/99988) 소거: 최신 데이터 2023-05, 25개월 지연 → API 미업데이트
-    # 200Y104: 실질GDP 계절조정(1118=합계) → QoQ/YoY 계산
-    ("GDP_GROWTH_QOQ",      "200Y104", "Q", "1118",    "%",    "실질GDP 전기비",           "qoq_pct"),  # 10101 오류 → 1118+계산
-    ("GDP_GROWTH_YOY",      "200Y104", "Q", "1118",    "%",    "실질GDP 전년비",           "yoy_pct"),  # 10111 오류 → 1118+계산
+    # CLI_COINCIDENT, CLI_LEADING, INDPRO_YOY -> KOSIS 이관 (kosis_fetch.py 참조)
+    # BSI_ALL (512Y014/99988) 소거: 최신 데이터 2023-05, 25개월 지연 -> API 미업데이트
+    # 200Y104: 실질GDP 계절조정(1118=합계) -> QoQ/YoY 계산
+    ("GDP_GROWTH_QOQ",      "200Y104", "Q", "1118",    "%",    "실질GDP 전기비",           "qoq_pct"),  # 10101 오류 -> 1118+계산
+    ("GDP_GROWTH_YOY",      "200Y104", "Q", "1118",    "%",    "실질GDP 전년비",           "yoy_pct"),  # 10111 오류 -> 1118+계산
 
-    # 04_노동시장 → KOSIS 이관 (UNEMPLOYMENT_RATE, EMPLOYMENT_CHANGE,
-    #   LABOR_PARTICIPATION, EMPLOYMENT_RATE → kosis_fetch.py 참조)
+    # 04_노동시장 -> KOSIS 이관 (UNEMPLOYMENT_RATE, EMPLOYMENT_CHANGE,
+    #   LABOR_PARTICIPATION, EMPLOYMENT_RATE -> kosis_fetch.py 참조)
 
     # ── 04. 통화·유동성 ────────────────────────────────────────────────────
-    # 161Y006: M2 광의통화(평잔, 원계열) BBHA00=M2 합계 → YoY 계산
+    # 161Y006: M2 광의통화(평잔, 원계열) BBHA00=M2 합계 -> YoY 계산
     ("M2_YOY",              "161Y006", "M", "BBHA00",  "%",    "M2 광의통화 전년비",       "yoy_pct"),
     # 102Y004: 본원통화 잔액 (ABA104=본원통화)
     ("BASE_MONEY",          "102Y004", "M", "ABA104",  "십억원","본원통화 잔액",           None),
     # 104Y016: 예금은행 대출금(말잔), BDCA1=총대출금(가계+기업 합산)
-    # ※ 구 104Y014/BCA8은 "예금은행 총수신(수신합계)"로 기업대출이 아니었음 → 교체
+    # ※ 구 104Y014/BCA8은 "예금은행 총수신(수신합계)"로 기업대출이 아니었음 -> 교체
     ("BANK_LOANS",          "104Y016", "M", "BDCA1",   "십억원","예금은행 총대출금",       None),
 
     # ── 05. 주택시장 ───────────────────────────────────────────────────────
-    # 901Y062: KB주택매매가격지수(2022.01=100), P63A=총지수 → YoY 계산
-    # (구 901Y092/E100-E101-I100은 성질별수출입 무역데이터로 주택과 무관 → 제거)
+    # 901Y062: KB주택매매가격지수(2022.01=100), P63A=총지수 -> YoY 계산
+    # (구 901Y092/E100-E101-I100은 성질별수출입 무역데이터로 주택과 무관 -> 제거)
     ("KB_HOUSE_YOY",        "901Y062", "M", "P63A",    "%",    "KB주택매매가격 전년비",    "yoy_pct"),
-    # 901Y063: KB주택전세가격지수(2022.01=100), P64A=총지수 → YoY 계산
+    # 901Y063: KB주택전세가격지수(2022.01=100), P64A=총지수 -> YoY 계산
     ("KB_JEONSE_YOY",       "901Y063", "M", "P64A",    "%",    "KB주택전세가격 전년비",    "yoy_pct"),
     # 901Y066: 건설경기지수 (I15A=주택착공지수)
-    ("HOUSING_START",       "901Y066", "M", "I15A",    "지수", "주택착공지수",            None),  # I16Y 오류 → I15A
+    ("HOUSING_START",       "901Y066", "M", "I15A",    "지수", "주택착공지수",            None),  # I16Y 오류 -> I15A
 
-    # 07_수출입·무역 → KOSIS 이관 (EXPORT_YOY, IMPORT_YOY → kosis_fetch.py 참조)
+    # 07_수출입·무역 -> KOSIS 이관 (EXPORT_YOY, IMPORT_YOY -> kosis_fetch.py 참조)
     # ── 소비·산업 (카테고리 전체 소거, 번호 미부여)
-    # RETAIL_SALES_YOY (402Y015/*AA): 최신 2024-10 (7개월 지연) + item_code 오류 이력 → 소거
-    # CSI           (511Y004/FMAA) : 최신 2022-08 (33개월 지연) → ECOS 서비스 구조 변경 추정 → 소거
+    # RETAIL_SALES_YOY (402Y015/*AA): 최신 2024-10 (7개월 지연) + item_code 오류 이력 -> 소거
+    # CSI           (511Y004/FMAA) : 최신 2022-08 (33개월 지연) -> ECOS 서비스 구조 변경 추정 -> 소거
 
     # ── 06. 금융시장 ───────────────────────────────────────────────────────
     # 802Y001: 주가지수 일별 시리즈.
@@ -192,7 +192,7 @@ def _date_range(period: str) -> tuple[str, str]:
 
 
 def fetch_series(stat_code: str, period: str, item_code: str) -> list[dict]:
-    """ECOS StatisticSearch 호출 → row 리스트 반환. future-date 오류 시 재시도."""
+    """ECOS StatisticSearch 호출 -> row 리스트 반환. future-date 오류 시 재시도."""
     start, end = _date_range(period)
     item_part = f"/{item_code}" if item_code else ""
 
@@ -352,7 +352,7 @@ def _compute_derived(records: dict) -> dict:
 # 데이터 품질 검증
 # ---------------------------------------------------------------------------
 def _check_data_quality(records: dict) -> dict:
-    """수집 후 데이터 품질 — 신선도 이상치 탐지.
+    """수집 후 데이터 품질 - 신선도 이상치 탐지.
 
     검증 항목
     ─────────
@@ -368,14 +368,14 @@ def _check_data_quality(records: dict) -> dict:
     from datetime import date as _date
     today = _date.today()
 
-    # ECOS 시장 데이터: 구조적 지연(~7개월)이 정상 특성 → 신선도 검사 면제
+    # ECOS 시장 데이터: 구조적 지연(~7개월)이 정상 특성 -> 신선도 검사 면제
     STALENESS_EXEMPT = {"KOSPI", "KOSDAQ"}
 
     for key, meta in records.items():
         if meta.get("value") is None:
             continue
         if key in STALENESS_EXEMPT:
-            continue  # 주가지수 등 구조적 지연 허용 시리즈 → 검사 건너뜀
+            continue  # 주가지수 등 구조적 지연 허용 시리즈 -> 검사 건너뜀
         period = meta.get("period", "M")
         obs_date = meta.get("date", "N/A")
         try:
@@ -383,12 +383,12 @@ def _check_data_quality(records: dict) -> dict:
                 obs = _date(int(obs_date[:4]), int(obs_date[4:6]), 1)
                 months_lag = (today.year - obs.year) * 12 + (today.month - obs.month)
                 if months_lag > 6:
-                    print(f"  [STALE] {key}: {obs_date} ({months_lag}개월 지연) → None")
+                    print(f"  [STALE] {key}: {obs_date} ({months_lag}개월 지연) -> None")
                     records[key]["value"] = None
             elif period == "D" and len(obs_date) == 8 and obs_date.isdigit():
                 obs = _date(int(obs_date[:4]), int(obs_date[4:6]), int(obs_date[6:8]))
                 if (today - obs).days > 180:
-                    print(f"  [STALE] {key}: {obs_date} ({(today - obs).days}일 지연) → None")
+                    print(f"  [STALE] {key}: {obs_date} ({(today - obs).days}일 지연) -> None")
                     records[key]["value"] = None
         except Exception:
             pass
@@ -443,7 +443,7 @@ SERIES_NOTES = {
     "KB_JEONSE_YOY":       "전세가격 전년비. 주거비 부담 및 전세-매매 갭 모니터링",
     "HOUSING_START":       "주택착공지수. 건설경기 선행. 금리 인상 후 6~12개월 후행",
     # ── 금융시장 ──
-    "KOSPI":               "KOSPI 지수(ECOS 구조 지연 ~6-7개월). SIG12 전용 — 레짐 성장 제외",
+    "KOSPI":               "KOSPI 지수(ECOS 구조 지연 ~6-7개월). SIG12 전용 - 레짐 성장 제외",
     "KOSDAQ":              "[참조전용] KOSDAQ 지수(ECOS 구조 지연 ~6-7개월). 추세·방향성 참고",
     "USD_KRW":             "[참조전용] 원/달러 환율 월평균. 상승=원화 약세. 수입물가·외화부채 압박",
     "CD_BOK_SPREAD":       "CD-기준금리 스프레드(파생). 단기 유동성 프리미엄 확대 시 경계",
@@ -488,13 +488,13 @@ def calc_chg(cur: float | None, comp: float | None) -> float | None:
 
 
 def fmt_date(d: str) -> str:
-    """ECOS 날짜 형식 → 가독성 있는 형식 변환 (MD 출력 전용)."""
+    """ECOS 날짜 형식 -> 가독성 있는 형식 변환 (MD 출력 전용)."""
     if not d or d == "N/A":
         return "N/A"
     d = str(d)
-    if len(d) == 6 and d.isdigit():    # YYYYMM → YYYY-MM
+    if len(d) == 6 and d.isdigit():    # YYYYMM -> YYYY-MM
         return f"{d[:4]}-{d[4:]}"
-    if len(d) == 8 and d.isdigit():    # YYYYMMDD → YYYY-MM-DD
+    if len(d) == 8 and d.isdigit():    # YYYYMMDD -> YYYY-MM-DD
         return f"{d[:4]}-{d[4:6]}-{d[6:]}"
     return d                           # YYYYQN 등은 그대로
 
@@ -641,16 +641,16 @@ def collect_all() -> pd.DataFrame:
 # 출력 파일 생성
 # ---------------------------------------------------------------------------
 CATEGORY_MAP = {
-    # 21개 ECOS 잔류 지표 — 물가/경기/고용/수출입 → kosis_fetch.py 이관
+    # 21개 ECOS 잔류 지표 - 물가/경기/고용/수출입 -> kosis_fetch.py 이관
     "01_금리·채권":   ["BOK_BASE_RATE", "GOV_BOND_3Y", "GOV_BOND_10Y", "CD_91D",
                       "CORP_BOND_AA_MINUS", "CORP_BOND_BBB_MINUS"],
     "02_물가":        ["PPI_YOY", "IMPORT_PRICE_YOY"],
-    # CPI_YOY, CORE_CPI_YOY → KOSIS 이관
-    # CLI_COINCIDENT, CLI_LEADING, INDPRO_YOY → KOSIS 이관
+    # CPI_YOY, CORE_CPI_YOY -> KOSIS 이관
+    # CLI_COINCIDENT, CLI_LEADING, INDPRO_YOY -> KOSIS 이관
     # BSI_ALL 소거 (2023-05 이후 업데이트 없음)
     "03_GDP":         ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY"],
-    # 04_노동시장 → KOSIS 이관 (UNEMPLOYMENT_RATE 등 4개)
-    # 05_수출입 → KOSIS 이관 (EXPORT_YOY, IMPORT_YOY)
+    # 04_노동시장 -> KOSIS 이관 (UNEMPLOYMENT_RATE 등 4개)
+    # 05_수출입 -> KOSIS 이관 (EXPORT_YOY, IMPORT_YOY)
     # CSI/RETAIL_SALES_YOY 소거 (API 데이터 부재)
     "04_통화·유동성":  ["M2_YOY", "BASE_MONEY", "BANK_LOANS"],
     "05_주택시장":    ["KB_HOUSE_YOY", "KB_JEONSE_YOY", "HOUSING_START"],
@@ -670,7 +670,7 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
     import math as _math
 
     def _nn(v: object) -> float | None:
-        """pandas NaN → None 변환."""
+        """pandas NaN -> None 변환."""
         return None if (v is None or (isinstance(v, float) and _math.isnan(v))) else v  # type: ignore[return-value]
 
     lookup = df.set_index("series_id").to_dict("index")
@@ -738,7 +738,7 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
         "기준일 참고 필수, 현재 시황 반영 아님",
         "",
         "> **비교 컬럼 범례**",
-        "> - 전기비: M=전월차, D=전일차, Q=전분기차 (원계열 수준→절대차, YoY/QoQ→%p 차이)",
+        "> - 전기비: M=전월차, D=전일차, Q=전분기차 (원계열 수준->절대차, YoY/QoQ->%p 차이)",
         "> - 중기비: M=3개월전비, D=4주전비, Q=2분기전비",
         "> - YoY비: M=전년동월비, D=전년동일비, Q=전년동분기비",
         "",
@@ -754,7 +754,7 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
 # ---------------------------------------------------------------------------
 def main() -> None:
     print("=" * 60)
-    print("ECOS 거시경제 지표 수집 시작 (21개 — KOSIS 이관 후)")
+    print("ECOS 거시경제 지표 수집 시작 (21개 - KOSIS 이관 후)")
     print(f"API KEY: {'*' * 6}{API_KEY[-4:] if len(API_KEY) > 4 else '(sample)'}")
     print("=" * 60)
 

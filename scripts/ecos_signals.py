@@ -1,12 +1,12 @@
 """
 scripts/ecos_signals.py
-data/macro_latest.csv 를 읽어 11개 파생 신호와 종합 위험도를 계산하고
+data/macro_latest.csv 를 읽어 10개 파생 신호와 종합 위험도를 계산하고
 data/ecos_signals.md 를 생성합니다.
 
 v3.0 (2026-05-27): ECOS+KOSIS 통합 플랜 v1
   - INPUT_CSV: ecos_latest.csv → macro_latest.csv
   - SIG06 내수·소비 신규 구현 (KOSIS_RETAIL_YOY + KOSIS_SERVICE_PROD_YOY)
-  - series_id 키 매핑 10개: CPI/CORE_CPI/실업률/고용률/취업자/CLI/INDPRO/수출입
+  - series_id 키 매핑: CPI/CORE_CPI/실업률/고용률/취업자/CLI/INDPRO/소매·서비스
   - 각 신호 함수 return dict에 date 키 추가
   - build_md() 요약표에 기준일 컬럼 추가
   - 신호별 상세 섹션에 **기준일** 항목 추가
@@ -24,6 +24,7 @@ v2.2 (2026-05-26):
 
 소거된 신호:
   SIG04 기대인플레 디앵커링 — ECOS 기대인플레 시리즈 미수록 (BOK 서베이 데이터 비공개)
+  SIG10 수출 모멘텀 — KOSIS 관세청 수출입 Open API tblId 미확인 (v1.2 제거)
 """
 
 import sys
@@ -148,7 +149,7 @@ def trend_arrow(chg: float | None, threshold: float = 0.05) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 신호 계산 함수 (11개: SIG01-03·05-12)
+# 신호 계산 함수 (10개: SIG01-03·05-09·11-12)
 # ---------------------------------------------------------------------------
 def sig_01_term_spread(d: dict) -> dict:
     """1. 장단기 금리 스프레드 (국고채 10Y - 기준금리)"""
@@ -322,25 +323,6 @@ def sig_09_industrial_production(d: dict) -> dict:
     }
 
 
-def sig_10_trade(d: dict) -> dict:
-    """10. 수출 모멘텀 (수출 YoY, 관세청 통관기준, KOSIS)"""
-    exp_yoy = g(d, "KOSIS_EXPORT_YOY")
-    imp_yoy = g(d, "KOSIS_IMPORT_YOY")
-    s_exp   = score_0_10(exp_yoy, -15.0, 10.0, invert=True) if exp_yoy is not None else None
-    score   = s_exp
-    chg_prev = g(d, "KOSIS_EXPORT_YOY__chg_prev")
-    return {
-        "id": "SIG10", "name": "수출 모멘텀",
-        "value": exp_yoy, "unit": "% YoY (수출)",
-        "date": gdate(d, "KOSIS_EXPORT_YOY"),
-        "chg_prev": chg_prev, "chg_unit": "%p",
-        "detail": (f"수출YoY({fmt(exp_yoy)}%) / 수입YoY({fmt(imp_yoy)}%) "
-                   "[관세청 통관기준, KOSIS]"),
-        "threshold": "수출 YoY <-10% 위험 / 연속 감소 경보",
-        "score": score,
-    }
-
-
 def sig_11_housing_market(d: dict) -> dict:
     """11. 주택시장 (KB주택매매가격지수 YoY, KB전세가격지수 YoY, 착공지수 복합)"""
     kb_buy    = g(d, "KB_HOUSE_YOY")
@@ -390,7 +372,7 @@ SIGNAL_FUNCS = [
     sig_06_domestic_demand,     # v3.0 신규: KOSIS 소매판매+서비스업생산
     sig_07_credit_stress, sig_08_business_cycle,
     sig_09_industrial_production,
-    sig_10_trade, sig_11_housing_market, sig_12_kospi_regime,
+    sig_11_housing_market, sig_12_kospi_regime,
 ]
 
 
@@ -432,10 +414,10 @@ def _build_staleness_block(data: dict, generated_at: str, signals: list[dict]) -
     na_sigs = [s["id"] for s in signals if s.get("score") is None]
 
     lines = [f"> **데이터 기준일 현황** (생성: {generated_at})"]
-    lines.append("> - 최신(익월 초~중): 수출·CPI·고용(SIG10·SIG03·SIG05)")
+    lines.append("> - 최신(익월 초~중): CPI·고용(SIG03·SIG05) / 생산·소비(SIG06·SIG09) 익월 말")
     if na_sigs:
         lines.append(f"> - ⚠️ **수집 실패로 N/A**: {', '.join(na_sigs)}"
-                     " — KOSIS API 파라미터 또는 미발견 tblId. 해당 신호는 분석 제외.")
+                     " — 데이터 미수집. 해당 신호는 분석 제외.")
     if stale_items:
         lines.append("> - ⚠️ 2개월+ 지연: " + ", ".join(stale_items)
                      + " — 통계청 발표 특성, 분석 시 유의")

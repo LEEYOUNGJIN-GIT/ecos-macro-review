@@ -44,12 +44,12 @@ jobs:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         run: python ecos_fetch.py
 
-      - name: Step 1b - Fetch KOSIS data (14개 지표)
+      - name: Step 1b - Fetch KOSIS data (11개 지표)
         env:
           KOSIS_API_KEY: ${{ secrets.KOSIS_API_KEY }}
         run: python kosis_fetch.py
 
-      - name: Step 1b-check - KOSIS 수집 성공률 검증 (최소 8/14)
+      - name: Step 1b-check - KOSIS 수집 성공률 검증 (최소 8/11)
         run: |
           python - << 'PYEOF'
           import pandas as pd, sys

@@ -1,6 +1,6 @@
 """
 kosis_fetch.py
-통계청·관세청 KOSIS API에서 14개 거시경제 지표를 수집하고
+통계청 KOSIS API에서 11개 거시경제 지표를 수집하고
 data/kosis_latest.csv 및 data/kosis_latest.md 를 생성합니다.
 
 KOSIS API 키 발급: https://kosis.kr/openapi/
@@ -23,7 +23,11 @@ KOSIS API 키 발급: https://kosis.kr/openapi/
     · 근원CPI: DT_1J22007(농산물석유류제외) / objL1=QC / itmId=T (지수→yoy_pct)
     · 고용: DT_1DA7002S / objL1=00 / itmId T80/T90/T60/T30 검증
     · 경기지수 순환변동치: DT_1C8016→DT_1C8015 교체, c1_filter B03/A03 추가
-  - 광공업생산/소매판매/서비스업생산/수출입: API 접근 불가 tblId 미발견, v1.2에서 해결 예정
+  v1.2 (2026-05-27): 생산·소비 tblId 확정, 수출입 3종 제거
+  - 광공업: DT_1F02011 / itmId=T10 / c1_filter=10 (yoy_pct)
+  - 소매: DT_1K41012 / itmId=T2 / c1_filter=G0 (yoy_pct)
+  - 서비스업: DT_1KC2020 / itmId=T2 / c1_filter=E (yoy_pct)
+  - KOSIS_EXPORT/IMPORT/TRADE_BALANCE: 관세청 Open API tblId 미확인 → 프로젝트 전체 제거
   v1.0 (2026-05-27): 최초 작성 - ECOS+KOSIS 통합 플랜 v1 구현
 """
 
@@ -71,7 +75,6 @@ DATA_DIR.mkdir(exist_ok=True)
 #
 # 주요 orgId:
 #   101 = 통계청(국가통계포털)
-#   145 = 관세청
 # ---------------------------------------------------------------------------
 KOSIS_SERIES = [
     # 형식: (series_id, org_id, tbl_id, itm_id, obj_l1, prd_se,
@@ -114,25 +117,17 @@ KOSIS_SERIES = [
      "지수",   "선행지수 순환변동치",               None,       "약 2개월",  "A03"),
 
     # ── 04. 생산 ─────────────────────────────────────────────────────────
-    # ⚠ DT_1J14001: API 접근 시 빈 응답 - tblId/objL1 미확인 (v1.2에서 해결 예정)
-    ("KOSIS_INDPRO_YOY",     "101", "DT_1J14001",  "T10", "ALL", "M",
-     "%",     "광공업생산지수 전년비",              "yoy_pct",  "익월 말",   None),
+    # DT_1F02011: 기본분류 일부항목 제외 광공업생산지수(2020=100) ✅ v1.2 검증
+    ("KOSIS_INDPRO_YOY",     "101", "DT_1F02011",  "T10", "ALL", "M",
+     "%",     "광공업생산지수 전년비",              "yoy_pct",  "익월 말",   "10"),
 
-    # ── 05. 수출입 ────────────────────────────────────────────────────────
-    # ⚠ DT_TRDE_006: 관세청(145) 테이블 API 미접근 - tblId 미확인 (v1.2에서 해결 예정)
-    ("KOSIS_EXPORT_YOY",     "145", "DT_TRDE_006", "T10", "ALL", "M",
-     "%",     "수출 전년동월비(통관기준)",          None,       "익월 1~5일", None),
-    ("KOSIS_IMPORT_YOY",     "145", "DT_TRDE_006", "T13", "ALL", "M",
-     "%",     "수입 전년동월비(통관기준)",          None,       "익월 1~5일", None),
-    ("KOSIS_TRADE_BALANCE",  "145", "DT_TRDE_006", "T16", "ALL", "M",
-     "백만달러", "무역수지",                       None,       "익월 1~5일", None),
-
-    # ── 06. 소비·내수 ─────────────────────────────────────────────────────
-    # ⚠ DT_1J14003/DT_1J22004: API 접근 시 빈 응답 - tblId/objL1 미확인 (v1.2에서 해결 예정)
-    ("KOSIS_RETAIL_YOY",       "101", "DT_1J14003", "T10", "ALL", "M",
-     "%",     "소매판매 전년동월비",               "yoy_pct",  "익월 말",   None),
-    ("KOSIS_SERVICE_PROD_YOY", "101", "DT_1J22004", "T10", "ALL", "M",
-     "%",     "서비스업생산지수 전년비",            "yoy_pct",  "익월 말",   None),
+    # ── 05. 소비·내수 ─────────────────────────────────────────────────────
+    # DT_1K41012: 재별 및 상품군별 소매판매액지수, C1=G0 총지수 불변지수 ✅ v1.2
+    ("KOSIS_RETAIL_YOY",       "101", "DT_1K41012", "T2",  "ALL", "M",
+     "%",     "소매판매 전년동월비",               "yoy_pct",  "익월 말",   "G0"),
+    # DT_1KC2020: 산업별 서비스업생산지수, C1=E 전체 불변지수 ✅ v1.2
+    ("KOSIS_SERVICE_PROD_YOY", "101", "DT_1KC2020", "T2",  "ALL", "M",
+     "%",     "서비스업생산지수 전년비",            "yoy_pct",  "익월 말",   "E"),
 ]
 
 # ---------------------------------------------------------------------------
@@ -141,8 +136,6 @@ KOSIS_SERIES = [
 _FACT_ONLY   = "[참조전용] 신호/레짐 점수 미사용"
 _CORE_NOTE   = ("OECD방식(식품·에너지제외). "
                 "구 ECOS QB(농산물·석유류제외)와 정의 상이 - 수치 직접 비교 불가")
-_TRADE_BAL   = "[참조전용] 절대금액(백만달러), 신호 점수 산정 불가"
-
 SERIES_NOTES: dict[str, str] = {
     "KOSIS_CPI_YOY":          "소비자물가 기준지표. 통계청 익월 초 발표. BOK 목표 2%",
     "KOSIS_CORE_CPI_YOY":     _CORE_NOTE,
@@ -152,16 +145,13 @@ SERIES_NOTES: dict[str, str] = {
     "KOSIS_EMP_CHANGE":       "취업자수 전년동기 증감(천명). 0 이하 지속 시 고용 악화",
     "KOSIS_CLI_COINCIDENT":   "동행지수 순환변동치(100기준). 통계청 원천, 약 2개월 지연",
     "KOSIS_CLI_LEADING":      "선행지수 순환변동치(100기준). 6개월 선행 경기 방향 포착",
-    "KOSIS_INDPRO_YOY":       "광공업생산지수 전년비. 통계청 원천, 익월 말 발표",
-    "KOSIS_EXPORT_YOY":       "수출 전년동월비(관세청 통관기준). 구 ECOS 금액지수와 수치 다를 수 있음",
-    "KOSIS_IMPORT_YOY":       "수입 전년동월비(관세청 통관기준). SIG10 참고용만 사용",
-    "KOSIS_TRADE_BALANCE":    _TRADE_BAL,
-    "KOSIS_RETAIL_YOY":       "소매판매 전년동월비. 내수 소비 핵심 지표",
+    "KOSIS_INDPRO_YOY":       "광공업생산지수 전년비(DT_1F02011). 통계청 원천, 익월 말 발표",
+    "KOSIS_RETAIL_YOY":       "소매판매 전년동월비(DT_1K41012). 내수 소비 핵심 지표",
     "KOSIS_SERVICE_PROD_YOY": "서비스업생산지수 전년비. 내수 서비스 경기 반영",
 }
 
 # 팩트 전용(신호/레짐 미사용) 지표
-FACT_ONLY_IDS = {"KOSIS_LABOR_PART", "KOSIS_TRADE_BALANCE"}
+FACT_ONLY_IDS = {"KOSIS_LABOR_PART"}
 
 # ---------------------------------------------------------------------------
 # 비교 기간 설정
@@ -180,8 +170,7 @@ CATEGORY_MAP = {
                    "KOSIS_LABOR_PART", "KOSIS_EMP_CHANGE"],
     "03_경기지수": ["KOSIS_CLI_COINCIDENT", "KOSIS_CLI_LEADING"],
     "04_생산":     ["KOSIS_INDPRO_YOY"],
-    "05_수출입":   ["KOSIS_EXPORT_YOY", "KOSIS_IMPORT_YOY", "KOSIS_TRADE_BALANCE"],
-    "06_소비·내수": ["KOSIS_RETAIL_YOY", "KOSIS_SERVICE_PROD_YOY"],
+    "05_소비·내수": ["KOSIS_RETAIL_YOY", "KOSIS_SERVICE_PROD_YOY"],
 }
 
 RELEASE_LAG_MAP: dict[str, str] = {s[0]: s[9] for s in KOSIS_SERIES}
