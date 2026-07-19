@@ -211,12 +211,17 @@ def _kosis_parse_json(text: str) -> object:
     return json.loads(fixed)
 
 
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF  = 3.0  # 초, 시도마다 배수 증가 (3s, 6s, 12s)
+
+
 def fetch_kosis_series(
     org_id: str, tbl_id: str, itm_id: str, obj_l1: str, prd_se: str
 ) -> list[dict]:
     """KOSIS statisticsParameterData.do 호출 -> 데이터 row 리스트 반환.
 
-    오류 발생 시 [] 반환 (파이프라인 중단 없음).
+    연결 오류(타임아웃 등)는 지수 백오프로 재시도. 오류 발생 시 [] 반환
+    (파이프라인 중단 없음).
     """
     if not API_KEY:
         print("  [WARN] KOSIS_API_KEY 환경변수가 설정되지 않았습니다.")
@@ -235,24 +240,36 @@ def fetch_kosis_series(
         "endPrdDe":   end,
         "format":     "json",
     }
-    try:
-        resp = requests.get(BASE_URL, params=params, timeout=20)
-        resp.raise_for_status()
-        resp.encoding = "utf-8"
-        body = _kosis_parse_json(resp.text)
 
-        # KOSIS 에러 응답: {err:"30", errMsg:"..."}
-        if isinstance(body, dict):
-            err = body.get("err", "")
-            if err:
-                print(f"  [WARN] {tbl_id}/{itm_id}: KOSIS 오류 [{err}] {body.get('errMsg', '')}")
-                return []
-        if isinstance(body, list):
-            return body
-        return []
-    except Exception as exc:
-        print(f"  [WARN] {tbl_id}/{itm_id}: {exc}")
-        return []
+    last_exc: Exception | None = None
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            resp = requests.get(BASE_URL, params=params, timeout=20)
+            resp.raise_for_status()
+            resp.encoding = "utf-8"
+            body = _kosis_parse_json(resp.text)
+
+            # KOSIS 에러 응답: {err:"30", errMsg:"..."}
+            if isinstance(body, dict):
+                err = body.get("err", "")
+                if err:
+                    print(f"  [WARN] {tbl_id}/{itm_id}: KOSIS 오류 [{err}] {body.get('errMsg', '')}")
+                    return []
+            if isinstance(body, list):
+                return body
+            return []
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            last_exc = exc
+            if attempt < RETRY_ATTEMPTS:
+                wait = RETRY_BACKOFF * (2 ** (attempt - 1))
+                print(f"  [RETRY] {tbl_id}/{itm_id}: 연결 실패 ({attempt}/{RETRY_ATTEMPTS}), {wait:.0f}초 후 재시도")
+                time.sleep(wait)
+        except Exception as exc:
+            print(f"  [WARN] {tbl_id}/{itm_id}: {exc}")
+            return []
+
+    print(f"  [WARN] {tbl_id}/{itm_id}: {RETRY_ATTEMPTS}회 재시도 후 연결 실패 - {last_exc}")
+    return []
 
 
 # ---------------------------------------------------------------------------
