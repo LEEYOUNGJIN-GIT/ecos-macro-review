@@ -9,7 +9,7 @@
 > 비어 있으면 자동으로 이 ECOS 값으로 대체한다 — 상세는 `data/kosis_status_log.csv`(일자별
 > 성공/실패 이력)와 `data/kosis_latest.md` 상단의 최근 수집 이력 표 참고.
 >
-> **신규 참고지표 28종 (v3.4)**: 소비자심리(CCSI)·ESI·뉴스심리지수·BSI·기대인플레이션·
+> **신규 참고지표 24종 (v3.4)**: 소비자심리(CCSI)·ESI·뉴스심리지수·BSI·기대인플레이션·
 > 외환보유액·국가별 수출입·가계대출·미분양주택·아파트실거래가·연체율·대출행태서베이 —
 > 전부 `discover_ecos_codes.py`로 stat_code/item_code 실측 확인 후 추가. 신호/레짐 계산에는
 > 쓰이지 않는 **[참조전용]** 팩트 데이터.
@@ -50,7 +50,7 @@
 
 ### ECOS 51개 (한국은행 원천)
 
-**핵심 지표 + KOSIS 재배포 대체 (23개)**
+**핵심 지표 + KOSIS 재배포 대체 (27개)**
 
 | series_id | 지표명 | 단위 | 신호/레짐 사용 |
 |-----------|--------|------|-------------|
@@ -65,7 +65,7 @@
 | PPI_YOY | 생산자물가 전년비 | % YoY | SIG03, 레짐인플레(w=1.5) |
 | IMPORT_PRICE_YOY | 수입물가 전년비 | % YoY | 레짐인플레(w=1.0) |
 | GDP_GROWTH_QOQ | 실질GDP 전기비 | % | 팩트 전용 |
-| GDP_GROWTH_YOY | 실질GDP 전년비 | % | 레짐성장(w=2.0) |
+| GDP_GROWTH_YOY | 실질GDP 전년비 | % | 레짐성장(w=0.5, 분기 데이터라 저가중) |
 | CLI_COINCIDENT | 경기동행지수순환변동 (901Y067/I16D) | 지수 | **[재배포 대체]** KOSIS_CLI_COINCIDENT 차단 시 SIG08·레짐성장 사용 |
 | CLI_LEADING | 경기선행지수순환변동 (901Y067/I16E) | 지수 | **[재배포 대체]** KOSIS_CLI_LEADING 차단 시 SIG08·레짐성장 사용 |
 | INDPRO_YOY | 광공업생산지수 전년비 (401Y015/*AA/C) | % YoY | **[재배포 대체]** KOSIS_INDPRO_YOY 차단 시 SIG09·레짐성장 사용 |
@@ -84,7 +84,7 @@
 
 > **KOSPI**: ECOS 802Y001 일별 수집. 레짐 성장 점수에서 제외, SIG12에서만 사용.
 
-**신규 참고지표 28개 (v3.4, 전부 [참조전용] — 신호/레짐 미사용)**
+**신규 참고지표 24개 (v3.4, 전부 [참조전용] — 신호/레짐 미사용)**
 
 | 카테고리 | series_id | stat_code/item_code |
 |---|---|---|
@@ -133,17 +133,18 @@
 | ID | 신호명 | 입력 지표 | 레인지 |
 |----|--------|---------|-------|
 | SIG01 | 장단기 금리 스프레드 | GOV_BOND_10Y - BOK_BASE_RATE | %p |
-| SIG02 | 실질금리 갭 | BOK_BASE_RATE - KOSIS_CORE_CPI_YOY (ECOS 대체 없음, KOSIS 차단 시 N/A) | %p |
-| SIG03 | 인플레이션 레짐 | KOSIS_CPI_YOY(대체: CPI_YOY), KOSIS_CORE_CPI_YOY, PPI_YOY | % 복합 |
+| SIG02 | 실질금리 갭 | BOK_BASE_RATE - KOSIS_CORE_CPI_YOY(대체: CORE_CPI_YOY) | %p |
+| SIG03 | 인플레이션 레짐 | KOSIS_CPI_YOY(대체: CPI_YOY), KOSIS_CORE_CPI_YOY(대체: CORE_CPI_YOY), PPI_YOY | % 복합 |
 | SIG05 | 노동시장 종합 | KOSIS_UNEMP_RATE, KOSIS_EMP_CHANGE, KOSIS_EMP_RATE | % |
-| SIG06 | 내수·소비 | KOSIS_RETAIL_YOY, KOSIS_SERVICE_PROD_YOY | % YoY |
+| SIG06 | 내수·소비 | KOSIS_RETAIL_YOY, KOSIS_SERVICE_PROD_YOY(대체: SERVICE_PROD_YOY) | % YoY |
 | SIG07 | 신용 스트레스 | CREDIT_SPREAD, CD_BOK_SPREAD | %p |
-| SIG08 | 경기 사이클 | KOSIS_CLI_COINCIDENT, KOSIS_CLI_LEADING | 지수 |
+| SIG08 | 경기 사이클 | KOSIS_CLI_COINCIDENT(대체: CLI_COINCIDENT), KOSIS_CLI_LEADING(대체: CLI_LEADING) | 지수 |
 | SIG09 | 산업생산 모멘텀 | KOSIS_INDPRO_YOY(대체: INDPRO_YOY) | % YoY |
 | SIG11 | 주택시장 | KB_HOUSE_YOY, KB_JEONSE_YOY, HOUSING_START | % / 지수 |
 | SIG12 | KOSPI 레짐 | KOSPI | pt |
 
-> **미구현**: SIG04 기대인플레 디앵커링(ECOS 미수록), SIG10 수출 모멘텀(KOSIS 관세청 API 미연동).
+> **미구현**: SIG04 기대인플레 디앵커링(원자료 `EXPECTED_INFLATION` 참조전용 수집만 됨, 신호 미계산),
+> SIG10 수출 모멘텀(KOSIS 관세청 API 미연동 — `EXPORT_CN_YOY`/`EXPORT_US_YOY` 참조전용 원자료는 있음).
 
 ---
 
@@ -158,9 +159,12 @@
 | ⚠️ Stagflation | 약함(≤5) | 높음(>5) |
 | ❄️ Recession Risk | 약함(≤5) | 낮음(≤5) |
 
-**성장 6요소**: GDP_GROWTH_YOY(w=2.0), KOSIS_EMP_RATE(w=1.0), KOSIS_CLI_COINCIDENT(w=1.5), KOSIS_CLI_LEADING(w=1.5), KOSIS_INDPRO_YOY(w=1.0, 대체: INDPRO_YOY), KOSIS_RETAIL_YOY(w=1.0)
+**성장 6요소**: GDP_GROWTH_YOY(w=0.5, 분기 데이터라 저가중), KOSIS_EMP_RATE(w=1.0), KOSIS_CLI_COINCIDENT(w=1.5, 대체: CLI_COINCIDENT), KOSIS_CLI_LEADING(w=1.5, 대체: CLI_LEADING), KOSIS_INDPRO_YOY(w=1.0, 대체: INDPRO_YOY), KOSIS_RETAIL_YOY(w=1.0)
 
-**인플레 4요소**: KOSIS_CPI_YOY(w=2.0, 대체: CPI_YOY), KOSIS_CORE_CPI_YOY(w=2.0, 대체 없음), PPI_YOY(w=1.5), IMPORT_PRICE_YOY(w=1.0, ±15% winsorize)
+**인플레 4요소**: KOSIS_CPI_YOY(w=2.0, 대체: CPI_YOY), KOSIS_CORE_CPI_YOY(w=2.0, 대체: CORE_CPI_YOY), PPI_YOY(w=1.5), IMPORT_PRICE_YOY(w=1.0, 정상범위 ±10%·극단감지 ±30%)
+
+> CLI 동행·선행은 구조적 2개월 지연이 정상이라 신선도 할인(2개월+ 지연 시 가중치 ×0.7) 예외 적용.
+> 커버리지(축별 값 존재 비중)가 50% 미만이면 레짐 확정을 보류하고 "⚪ 분류 불가"로 표시.
 
 ---
 
@@ -168,21 +172,24 @@
 
 ```
 ecos-macro-review/
-├── ecos_fetch.py                  ECOS 23개 시리즈 수집 (CPI_YOY·INDPRO_YOY는 KOSIS 재배포 대체)
+├── ecos_fetch.py                  ECOS 51개 시리즈 수집 (6종은 KOSIS 재배포 대체, 24종은 참조전용 신규)
 ├── kosis_fetch.py                 KOSIS 11개 지표 수집 + 일자별 수집 이력 로그
+├── discover_ecos_codes.py         ECOS stat_code/item_code 실측 조회 헬퍼 (신규 시리즈 추가 전 검증용)
 ├── scripts/
 │   ├── merge_macro.py             ECOS+KOSIS 병합 → macro_latest.csv
+│   ├── validate_macro.py          병합 결과 품질 검증 (CI에서 실행)
 │   ├── ecos_signals.py            10개 신호 계산 (KOSIS 우선, ECOS 대체)
-│   └── ecos_regime.py             레짐 분류 (KOSIS 우선, ECOS 대체)
+│   └── ecos_regime.py             레짐 분류 + 커버리지 신뢰도 표시 (KOSIS 우선, ECOS 대체)
 ├── data/
-│   ├── ecos_latest.csv / .md      ECOS 23개 원천
+│   ├── ecos_latest.csv / .md      ECOS 51개 원천 (07_경제심리·08_대외건전성·09_가계부채·주택리스크 포함)
 │   ├── kosis_latest.csv / .md     KOSIS 11개 원천 + 최근 수집 이력 표
 │   ├── kosis_status_log.csv       KOSIS 일자별 성공/실패 이력 (최근 30건)
-│   ├── macro_latest.csv           통합 최대 34개 + source 컬럼
+│   ├── macro_latest.csv           통합 최대 62개 + source 컬럼
 │   ├── ecos_signals.md            신호 대시보드
-│   └── ecos_regime.md             레짐 분류 보고서
+│   └── ecos_regime.md             레짐 분류 보고서 (커버리지 컬럼 포함)
 ├── .github/workflows/
 │   ├── ecos_daily.yml             일일 데이터 수집 → 분석
+│   ├── discover_ecos.yml          ECOS 코드 조회 수동 실행용 (데이터 파이프라인과 무관)
 │   └── sync_claude_project.yml    Claude.ai 동기화
 └── claude_project_instructions.md
 ```

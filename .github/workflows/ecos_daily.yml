@@ -39,7 +39,7 @@ jobs:
         run: pip install -r requirements.txt
 
       # ── 1단계: 원천 데이터 수집 ──────────────────────────────────────────
-      - name: Step 1a - Fetch ECOS data (21개 지표)
+      - name: Step 1a - Fetch ECOS data (51개 지표)
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
         run: python ecos_fetch.py
