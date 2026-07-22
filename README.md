@@ -1,13 +1,18 @@
 # ECOS + KOSIS 한국 거시경제 자동 모니터링
 
-한국은행 ECOS API (23개) + 통계청 KOSIS API (11개) = **최대 34개 시리즈**를 매일 자동 수집·분석하고 Claude.ai 프로젝트에 동기화하는 시스템입니다.
+한국은행 ECOS API (51개) + 통계청 KOSIS API (11개) = **최대 62개 시리즈**를 매일 자동 수집·분석하고 Claude.ai 프로젝트에 동기화하는 시스템입니다.
 
-> **KOSIS 재배포 대체 (v3.2, 2026-07-22)**: GitHub Actions 환경에서 KOSIS(통계청) API가
-> 날짜별로 간헐 차단되는 문제가 확인되어(성공/실패가 일자별로 혼재), CPI·광공업생산은
-> ECOS 쪽에도 동일 지표를 병행 수집한다(`CPI_YOY`, `INDPRO_YOY`). `ecos_signals.py`/
-> `ecos_regime.py`는 KOSIS 값을 우선 사용하고, 그날 KOSIS가 비어 있으면 자동으로 이 ECOS
-> 값으로 대체한다 — 상세는 `data/kosis_status_log.csv`(일자별 성공/실패 이력)와
-> `data/kosis_latest.md` 상단의 최근 수집 이력 표 참고.
+> **KOSIS 재배포 대체 (v3.2~v3.5, 2026-07-22)**: GitHub Actions 환경에서 KOSIS(통계청) API가
+> 날짜별로 간헐 차단되는 문제가 확인되어(성공/실패가 일자별로 혼재), CPI·근원CPI·광공업생산·
+> 경기동행/선행지수·서비스업생산 6종은 ECOS 쪽에도 동일 지표를 병행 수집한다(`discover_ecos_codes.py`로
+> 실측 검증). `ecos_signals.py`/`ecos_regime.py`는 KOSIS 값을 우선 사용하고, 그날 KOSIS가
+> 비어 있으면 자동으로 이 ECOS 값으로 대체한다 — 상세는 `data/kosis_status_log.csv`(일자별
+> 성공/실패 이력)와 `data/kosis_latest.md` 상단의 최근 수집 이력 표 참고.
+>
+> **신규 참고지표 28종 (v3.4)**: 소비자심리(CCSI)·ESI·뉴스심리지수·BSI·기대인플레이션·
+> 외환보유액·국가별 수출입·가계대출·미분양주택·아파트실거래가·연체율·대출행태서베이 —
+> 전부 `discover_ecos_codes.py`로 stat_code/item_code 실측 확인 후 추가. 신호/레짐 계산에는
+> 쓰이지 않는 **[참조전용]** 팩트 데이터.
 
 ---
 
@@ -15,14 +20,14 @@
 
 ```
 [ECOS API]          [KOSIS API]
- 23개 시리즈          11개 지표
+ 51개 시리즈          11개 지표
  ecos_fetch.py       kosis_fetch.py
       │                   │
       └───────┬───────────┘
               ▼
        merge_macro.py
     data/macro_latest.csv
-    (최대 34개 통합, source 컬럼)
+    (최대 62개 통합, source 컬럼)
               │
        ┌──────┴──────┐
        ▼             ▼
@@ -41,9 +46,11 @@
 
 ---
 
-## 지표 목록 (최대 34개)
+## 지표 목록 (최대 62개)
 
-### ECOS 23개 (한국은행 원천)
+### ECOS 51개 (한국은행 원천)
+
+**핵심 지표 + KOSIS 재배포 대체 (23개)**
 
 | series_id | 지표명 | 단위 | 신호/레짐 사용 |
 |-----------|--------|------|-------------|
@@ -54,11 +61,15 @@
 | CORP_BOND_AA_MINUS | 회사채 AA- | % | 팩트 전용 |
 | CORP_BOND_BBB_MINUS | 회사채 BBB- | % | SIG07 파생 |
 | CPI_YOY | 소비자물가지수 전년비 (901Y009/0) | % YoY | **[재배포 대체]** KOSIS_CPI_YOY 차단 시 SIG03·레짐인플레 사용 |
+| CORE_CPI_YOY | 근원물가(농산물·석유류제외) 전년비 (901Y010/QB) | % YoY | **[재배포 대체]** KOSIS_CORE_CPI_YOY 차단 시 SIG02·SIG03·레짐인플레 사용 |
 | PPI_YOY | 생산자물가 전년비 | % YoY | SIG03, 레짐인플레(w=1.5) |
 | IMPORT_PRICE_YOY | 수입물가 전년비 | % YoY | 레짐인플레(w=1.0) |
 | GDP_GROWTH_QOQ | 실질GDP 전기비 | % | 팩트 전용 |
 | GDP_GROWTH_YOY | 실질GDP 전년비 | % | 레짐성장(w=2.0) |
+| CLI_COINCIDENT | 경기동행지수순환변동 (901Y067/I16D) | 지수 | **[재배포 대체]** KOSIS_CLI_COINCIDENT 차단 시 SIG08·레짐성장 사용 |
+| CLI_LEADING | 경기선행지수순환변동 (901Y067/I16E) | 지수 | **[재배포 대체]** KOSIS_CLI_LEADING 차단 시 SIG08·레짐성장 사용 |
 | INDPRO_YOY | 광공업생산지수 전년비 (401Y015/*AA/C) | % YoY | **[재배포 대체]** KOSIS_INDPRO_YOY 차단 시 SIG09·레짐성장 사용 |
+| SERVICE_PROD_YOY | 서비스업생산지수 전년비 (901Y038/I51A) | % YoY | **[재배포 대체]** KOSIS_SERVICE_PROD_YOY 차단 시 SIG06 사용 |
 | M2_YOY | M2 광의통화 전년비 | % | 팩트 전용 |
 | BASE_MONEY | 본원통화 잔액 | 십억원 | 팩트 전용 |
 | BANK_LOANS | 예금은행 총대출금 | 십억원 | 팩트 전용 |
@@ -72,6 +83,29 @@
 | KOSDAQ | KOSDAQ 지수 | pt | 팩트 전용 |
 
 > **KOSPI**: ECOS 802Y001 일별 수집. 레짐 성장 점수에서 제외, SIG12에서만 사용.
+
+**신규 참고지표 28개 (v3.4, 전부 [참조전용] — 신호/레짐 미사용)**
+
+| 카테고리 | series_id | stat_code/item_code |
+|---|---|---|
+| 07_경제심리 | CCSI | 511Y002/FME |
+| 07_경제심리 | ESI_RAW, ESI_CYCLE | 513Y001/E1000, E2000 |
+| 07_경제심리 | NEWS_SENTIMENT | 521Y001/A001 (일별) |
+| 07_경제심리 | BSI_ACTUAL_ALL, BSI_ACTUAL_MFG | 512Y013/AA·99988, AA·C0000 |
+| 07_경제심리 | BSI_FORECAST_ALL, BSI_FORECAST_MFG | 512Y014/BA·99988, BA·C0000 |
+| 07_경제심리 | EXPECTED_INFLATION | 511Y003/FMB |
+| 08_대외건전성 | FX_RESERVES | 732Y001/99 |
+| 08_대외건전성 | EXPORT_CN_YOY, IMPORT_CN_YOY | 901Y121/CN·T002, CN·T004 |
+| 08_대외건전성 | EXPORT_US_YOY, IMPORT_US_YOY | 901Y121/US·T002, US·T004 |
+| 09_가계부채·주택리스크 | HOUSEHOLD_LOANS | 151Y002/1111000 |
+| 09_가계부채·주택리스크 | UNSOLD_HOUSING | 901Y074/I410A |
+| 09_가계부채·주택리스크 | APT_PRICE_NATIONAL/SEOUL/CAPITAL | 901Y089/100, 200, 300 |
+| 09_가계부채·주택리스크 | DELINQUENCY_HOUSEHOLD, DELINQUENCY_BANK_ALL | 901Y054/MO3AB, AB |
+| 09_가계부채·주택리스크 | LOAN_SURVEY_1/2/3 | 514Y001~003/AA, BB, CC |
+
+> 지표별 해석 노트는 `ecos_fetch.py`의 `SERIES_NOTES`에 있음. `EXPORT/IMPORT_CN·US_YOY`의
+> T002/T004 수출입 매핑, `LOAN_SURVEY_1~3`의 AA/BB/CC 항목 의미는 관행적 추정이며 ITEM_NAME
+> 재확인 권장(`discover_ecos_codes.py --stat-code <code>`).
 
 ### KOSIS 11개 (통계청 원천)
 

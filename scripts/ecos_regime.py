@@ -3,6 +3,14 @@ scripts/ecos_regime.py
 data/macro_latest.csv 를 읽어 성장·인플레이션 점수를 계산하고
 2×2 매크로 레짐을 분류한 뒤 data/ecos_regime.md 를 생성합니다.
 
+v3.5 (2026-07-22): 근원CPI·CLI 동행/선행 ECOS 재배포 대체 확보
+  - discover_ecos_codes.py 실측 조회로 CORE_CPI_YOY(901Y010/QB), CLI_COINCIDENT
+    /CLI_LEADING(901Y067/I16D·I16E) 확보. 인플레 점수 근원CPI, 성장 점수
+    CLI 동행·선행 요소 전부 g_fallback 적용 — "ECOS 대체 없음"이라던 v3.4까지의
+    문서화가 틀렸음이 드러남
+  - STALE_EXEMPT_SERIES에 ECOS 재배포본(CLI_COINCIDENT/LEADING)도 추가 — 동일
+    원천 통계라 KOSIS판과 같은 신선도 예외 적용
+
 v3.4 (2026-07-22): 커버리지 신뢰도 표시, CLI 신선도 예외, 스코어링 범위 재조정
   - weighted_mean()은 그대로 두고 coverage_ratio() 신설 — components와 병렬로
     쌓은 base_weights(할인 전 원래 가중치)로 "값이 있는 요소의 가중치 비중"을
@@ -93,9 +101,10 @@ STALE_MONTHS          = 2             # 이상 지연 시 가중치 축소
 STALE_WEIGHT_FACTOR   = 0.7           # 2개월+ 지연 시 base weight × 0.7
 GDP_BASE_WEIGHT       = 0.5           # 분기 GDP YoY — Q1 단일값 반영
 
-STALE_EXEMPT_SERIES = {"KOSIS_CLI_COINCIDENT", "KOSIS_CLI_LEADING"}
+STALE_EXEMPT_SERIES = {"KOSIS_CLI_COINCIDENT", "KOSIS_CLI_LEADING", "CLI_COINCIDENT", "CLI_LEADING"}
 # 통계청 경기지수 — 구조적 약 2개월 지연이 정상이라 신선도 감가 제외
-# (kosis_fetch.py STALENESS_EXEMPT와 동일 취지, v3.4)
+# (kosis_fetch.py STALENESS_EXEMPT와 동일 취지, v3.4). ECOS 재배포본(CLI_COINCIDENT/
+# LEADING, 901Y067)도 같은 원천 통계라 동일하게 면제.
 
 MIN_COVERAGE = 0.5   # base weight의 이 비율 미만이 실측이면 레짐 분류 보류 (v3.4)
 
@@ -283,26 +292,30 @@ def compute_growth_score(data: dict) -> dict:
                         s, w, gdate(data, "KOSIS_EMP_RATE")))
     base_weights.append(emp_base_w)
 
-    # 3. 경기동행지수 순환변동치 (weight 1.5) — KOSIS 통계청, 약 2개월 지연
+    # 3. 경기동행지수 순환변동치 (weight 1.5) — KOSIS 우선, 차단 시 ECOS 재배포
+    # (CLI_COINCIDENT, 901Y067/I16D) 대체. 약 2개월 지연은 구조적으로 정상(STALE_EXEMPT_SERIES).
     coin_base_w = 1.5
-    coin = g(data, "KOSIS_CLI_COINCIDENT")
-    coin_w = effective_weight(coin_base_w, raw_date(data, "KOSIS_CLI_COINCIDENT"), series_id="KOSIS_CLI_COINCIDENT")
+    coin, coin_src = g_fallback(data, "KOSIS_CLI_COINCIDENT", "CLI_COINCIDENT")
+    coin_w = effective_weight(coin_base_w, raw_date(data, coin_src), series_id=coin_src)
     s, w = score_component(coin, 94.0, 104.0, weight=coin_w)
-    components.append(("KOSIS_CLI_COINCIDENT", "경기동행지수순환변동", coin, "지수",
-                        g(data, "KOSIS_CLI_COINCIDENT__chg_prev"),
-                        g(data, "KOSIS_CLI_COINCIDENT__chg_yoy"),
-                        s, w, gdate(data, "KOSIS_CLI_COINCIDENT")))
+    coin_label = "경기동행지수순환변동" + (" (ECOS 재배포)" if coin_src == "CLI_COINCIDENT" else "")
+    components.append((coin_src, coin_label, coin, "지수",
+                        g(data, f"{coin_src}__chg_prev"),
+                        g(data, f"{coin_src}__chg_yoy"),
+                        s, w, gdate(data, coin_src)))
     base_weights.append(coin_base_w)
 
-    # 4. 경기선행지수 순환변동치 (weight 1.5) — KOSIS 통계청, 약 2개월 지연
+    # 4. 경기선행지수 순환변동치 (weight 1.5) — KOSIS 우선, 차단 시 ECOS 재배포
+    # (CLI_LEADING, 901Y067/I16E) 대체.
     lead_base_w = 1.5
-    lead = g(data, "KOSIS_CLI_LEADING")
-    lead_w = effective_weight(lead_base_w, raw_date(data, "KOSIS_CLI_LEADING"), series_id="KOSIS_CLI_LEADING")
+    lead, lead_src = g_fallback(data, "KOSIS_CLI_LEADING", "CLI_LEADING")
+    lead_w = effective_weight(lead_base_w, raw_date(data, lead_src), series_id=lead_src)
     s, w = score_component(lead, 94.0, 104.0, weight=lead_w)
-    components.append(("KOSIS_CLI_LEADING", "경기선행지수순환변동", lead, "지수",
-                        g(data, "KOSIS_CLI_LEADING__chg_prev"),
-                        g(data, "KOSIS_CLI_LEADING__chg_yoy"),
-                        s, w, gdate(data, "KOSIS_CLI_LEADING")))
+    lead_label = "경기선행지수순환변동" + (" (ECOS 재배포)" if lead_src == "CLI_LEADING" else "")
+    components.append((lead_src, lead_label, lead, "지수",
+                        g(data, f"{lead_src}__chg_prev"),
+                        g(data, f"{lead_src}__chg_yoy"),
+                        s, w, gdate(data, lead_src)))
     base_weights.append(lead_base_w)
 
     # 5. 광공업생산 YoY (weight 1.0) — KOSIS 우선, 차단 시 ECOS 재배포(INDPRO_YOY) 대체
@@ -360,16 +373,17 @@ def compute_inflation_score(data: dict) -> dict:
                         s, w, gdate(data, cpi_src)))
     base_weights.append(cpi_base_w)
 
-    # 2. 근원CPI YoY (weight 2.0) — 통계청 농산물·석유류제외, KOSIS 단일 소스
-    # (ECOS 재배포 후보 코드 미검증 — StatisticItemList 조회 전까지 대체 불가)
+    # 2. 근원CPI YoY (weight 2.0) — 농산물·석유류제외. KOSIS 우선, 차단 시 ECOS
+    # 재배포(CORE_CPI_YOY, 901Y010/QB)로 대체.
     core_base_w = 2.0
-    core = g(data, "KOSIS_CORE_CPI_YOY")
-    core_w = effective_weight(core_base_w, raw_date(data, "KOSIS_CORE_CPI_YOY"))
+    core, core_src = g_fallback(data, "KOSIS_CORE_CPI_YOY", "CORE_CPI_YOY")
+    core_w = effective_weight(core_base_w, raw_date(data, core_src))
     s, w = score_component(core, 0.0, 5.0, weight=core_w)
-    components.append(("KOSIS_CORE_CPI_YOY", "근원CPI 전년비(통계청)", core, "%",
-                        g(data, "KOSIS_CORE_CPI_YOY__chg_prev"),
-                        g(data, "KOSIS_CORE_CPI_YOY__chg_yoy"),
-                        s, w, gdate(data, "KOSIS_CORE_CPI_YOY")))
+    core_label = "근원CPI 전년비" + (" (ECOS 재배포)" if core_src == "CORE_CPI_YOY" else "(통계청)")
+    components.append((core_src, core_label, core, "%",
+                        g(data, f"{core_src}__chg_prev"),
+                        g(data, f"{core_src}__chg_yoy"),
+                        s, w, gdate(data, core_src)))
     base_weights.append(core_base_w)
 
     # 3. PPI YoY (weight 1.5) — ECOS 한국은행

@@ -1,12 +1,20 @@
 """
 ecos_fetch.py
-한국은행 ECOS API에서 23개 거시경제 지표를 수집하고
+한국은행 ECOS API에서 51개 거시경제 지표를 수집하고
 data/ecos_latest.csv 및 data/ecos_latest.md 를 생성합니다.
+
+KOSIS 재배포 대체 소스 전체 확보 + 신규 참고지표 28종 추가 (v3.4 -
+discover_ecos_codes.py 실측 조회로 CORE_CPI_YOY(901Y010/QB), CLI_COINCIDENT/
+LEADING(901Y067/I16D·I16E), SERVICE_PROD_YOY(901Y038/I51A)의 ECOS 코드를
+확인 — "ECOS 대체 없음"으로 문서화했던 v3.0~v3.3 전제가 틀렸음이 드러남.
+ecos_signals.py/ecos_regime.py에서 KOSIS 우선·ECOS 대체(g_fallback) 순으로
+사용. 그 외 CCSI·ESI·BSI·기대인플레이션·외환보유액·수출입·가계부채·주택
+리스크 계열 28종은 전부 [참조전용](신호/레짐 미사용) 신규 수집):
 
 KOSIS 재배포 대체 소스로 복원 (v3.2 - GH Actions에서 KOSIS(통계청) 접속이 날짜별로
 간헐 차단되는 문제 대응. kosis_fetch.py는 그대로 유지, ECOS는 병행 수집 후
 ecos_signals.py/ecos_regime.py 에서 KOSIS 우선·ECOS 대체 순으로 사용):
-  CPI_YOY       -> 901Y009/0 (근원CPI는 ECOS 재배포 코드 미검증 — KOSIS_CORE_CPI_YOY 전용 유지)
+  CPI_YOY       -> 901Y009/0
   INDPRO_YOY    -> 401Y015/*AA/C
 
 KOSIS 이관 완료 시리즈 (v3.0 - kosis_fetch.py 로 이전, 위 2종은 v3.2에서 ECOS 측 재수집 재개):
@@ -40,6 +48,18 @@ KOSIS 이관 완료 시리즈 (v3.0 - kosis_fetch.py 로 이전, 위 2종은 v3.
   - IMPORT_YOY ≥30% 시 팩트테이블에 "기저효과" 경고 플래그 자동 표시
   - GDP 성장 점수 정규화 범위 조정: (-3.0, 6.0) -> (-2.0, 8.0) in ecos_regime.py
     (2026Q1 실질GDP YoY 6.42%가 상한 6.0 초과로 매번 클리핑되던 문제 해소)
+
+  v3.4 (2026-07-22): CORE_CPI_YOY·CLI×2·SERVICE_PROD_YOY 재배포 대체 확보 + 신규 참고지표 28종
+  - discover_ecos_codes.py 실측 조회로 CORE_CPI_YOY(901Y010/QB), CLI_COINCIDENT
+    (901Y067/I16D), CLI_LEADING(901Y067/I16E), SERVICE_PROD_YOY(901Y038/I51A)의
+    ECOS 코드 확인 — "ECOS 대체 없음"이라던 이전 문서화가 틀렸음이 드러남
+  - 07_경제심리(CCSI·ESI·뉴스심리지수·BSI·기대인플레), 08_대외건전성(외환보유액·
+    대중국·대미국 수출입), 09_가계부채·주택리스크(가계대출·미분양주택·아파트
+    실거래가·연체율·대출행태서베이) 3개 카테고리·28개 시리즈 신규 추가, 전부
+    [참조전용](신호/레짐 미사용)
+  - LOAN_SURVEY_1~3(514Y001~003)의 AA/BB/CC 항목이 구체적으로 무엇을 뜻하는지는
+    미확인 — 원자료만 우선 수집. EXPORT/IMPORT_CN·US_YOY의 T002/T004 수출/수입
+    매핑도 관행적 추정이며 ITEM_NAME 재확인 권장
 
   v3.2 (2026-07-22): CPI_YOY·INDPRO_YOY ECOS 재배포 대체 소스 복원
   - GitHub Actions 실행 환경에서 KOSIS(통계청) API가 날짜별로 간헐 차단되어
@@ -132,12 +152,14 @@ SERIES = [
     ("CORP_BOND_BBB_MINUS", "721Y001", "M", "7030000", "%",    "회사채 BBB-",              None),  # 4050000 -> 7030000
 
     # ── 02. 물가·인플레 ────────────────────────────────────────────────────
-    # CORE_CPI_YOY(근원CPI)는 KOSIS 전용 유지 (ECOS 재배포 코드 미검증 — StatisticItemList
-    # 조회로 확인 후에만 추가할 것. 근거 없이 하드코딩 금지)
     # 901Y009/0: ECOS '소비자물가지수' 총지수 — v3.1에서 KOSIS CPI(index 119.37·YoY 2.57%)와
     # 동일값 실측 검증됨. KOSIS_CPI_YOY가 GitHub Actions에서 간헐 차단되므로 CPI_YOY(ECOS)를
     # 재배포 대체 소스로 복원 (v3.2). ecos_signals.py/ecos_regime.py는 KOSIS 우선, 실패 시 이 값 사용.
     ("CPI_YOY",              "901Y009", "M", "0",       "%",    "소비자물가지수 전년비(ECOS 재배포)", "yoy_pct"),
+    # 901Y010/QB: 소비자물가지수 근원지수(농산물및석유류제외) — discover_ecos_codes.py 실측
+    # 조회로 확인(v3.4). KOSIS_CORE_CPI_YOY(DT_1J22007/QB, 동일 정의)의 재배포 대체 소스.
+    # 참고: DB(식료품·에너지제외, OECD/IMF 기준)도 API 확인됐으나 KOSIS 정의와 안 맞아 미채택.
+    ("CORE_CPI_YOY",         "901Y010", "M", "QB",      "%",    "근원물가지수(농산물·석유류제외) 전년비(ECOS 재배포)", "yoy_pct"),
     # 404Y014/*AA: 생산자물가지수(기본분류) 총지수 (2020=100) — API 검증 ✅
     ("PPI_YOY",             "404Y014", "M", "*AA",     "%",    "생산자물가 전년비",        "yoy_pct"),
     # 403Y005: 수출입물가지수(2020=100), B=수입품물가지수 -> 지수에서 전년비 계산
@@ -145,7 +167,13 @@ SERIES = [
     ("IMPORT_PRICE_YOY",    "403Y005", "M", "B",       "%",    "수입물가 전년비",          "yoy_pct"),
 
     # ── 03. GDP ───────────────────────────────────────────────────────────
-    # CLI_COINCIDENT, CLI_LEADING -> KOSIS 전용 유지 (ECOS 직접 대체 없음)
+    # 901Y067: 경기종합지수(10차) — I16D=동행지수순환변동치, I16E=선행지수순환변동치.
+    # discover_ecos_codes.py 실측 조회로 확인(v3.4). 예전엔 "ECOS 직접 대체 없음"으로
+    # 문서화했었는데 틀렸음 — KOSIS_CLI_COINCIDENT/LEADING(DT_1C8015, 순환변동치·100기준)과
+    # 동일 정의라 재배포 대체 소스로 채택. (I16B/I16A는 종합지수 원계열로 100기준이 아니라
+    # 미채택 — 기존 지표들과 스케일이 안 맞음)
+    ("CLI_COINCIDENT",      "901Y067", "M", "I16D",    "지수", "경기동행지수순환변동(ECOS 재배포)", None),
+    ("CLI_LEADING",         "901Y067", "M", "I16E",    "지수", "경기선행지수순환변동(ECOS 재배포)", None),
     # BSI_ALL (512Y014/99988) 소거: 최신 데이터 2023-05, 25개월 지연 -> API 미업데이트
     # 200Y104: 실질GDP 계절조정(1118=합계) -> QoQ/YoY 계산
     ("GDP_GROWTH_QOQ",      "200Y104", "Q", "1118",    "%",    "실질GDP 전기비",           "qoq_pct"),  # 10101 오류 -> 1118+계산
@@ -153,6 +181,10 @@ SERIES = [
     # 401Y015/*AA/C: 광공업생산지수 원계열(2020=100) -> YoY. v2.1에서 API 실측 검증 후
     # v3.0에서 KOSIS_INDPRO_YOY로 이관됐던 시리즈. KOSIS 간헐 차단 대응으로 재배포 대체 소스 복원(v3.2).
     ("INDPRO_YOY",          "401Y015", "M", "*AA/C",   "%",    "광공업생산지수 전년비(ECOS 재배포)", "yoy_pct"),
+    # 901Y038/I51A: 서비스업생산지수 총지수 -> YoY. discover_ecos_codes.py 실측 조회로 확인(v3.4).
+    # KOSIS_SERVICE_PROD_YOY(DT_1KC2020/E)의 재배포 대체 소스 — 예전엔 "ECOS 대체 경로 없음"으로
+    # 문서화했었는데 틀렸음.
+    ("SERVICE_PROD_YOY",    "901Y038", "M", "I51A",    "%",    "서비스업생산지수 전년비(ECOS 재배포)", "yoy_pct"),
 
     # 04_노동시장 -> KOSIS 이관 (UNEMPLOYMENT_RATE, EMPLOYMENT_CHANGE,
     #   LABOR_PARTICIPATION, EMPLOYMENT_RATE -> kosis_fetch.py 참조)
@@ -188,6 +220,44 @@ SERIES = [
     ("USD_KRW",             "731Y004", "M", "0000001/0000100", "원", "원/달러 환율 월평균", None),
     ("CD_BOK_SPREAD",       "721Y001", "M", "SPREAD",  "%",    "CD-기준금리 스프레드 (파생)", None),
     ("CREDIT_SPREAD",       "721Y001", "M", "CSPREAD", "%",    "회사채BBB-국채3Y 스프레드 (파생)", None),
+
+    # ── 07. 경제심리 (v3.4 신규 — 전부 discover_ecos_codes.py 실측 조회로 확인) ───────
+    ("CCSI",                "511Y002", "M", "FME",     "지수", "소비자심리지수(CCSI)",     None),
+    ("ESI_RAW",             "513Y001", "M", "E1000",   "지수", "경제심리지수(ESI) 원계열", None),
+    ("ESI_CYCLE",           "513Y001", "M", "E2000",   "지수", "경제심리지수(ESI) 순환변동치", None),
+    # 521Y001: 뉴스심리지수. 일별(D)·월별(M) 모두 제공 — 고빈도 참고용으로 일별 채택.
+    ("NEWS_SENTIMENT",      "521Y001", "D", "A001",    "지수", "뉴스심리지수(일별)",       None),
+    # 512Y013(업황실적)/512Y014(업황전망) — AA/BA=BSI, 99988=전산업, C0000=제조업
+    ("BSI_ACTUAL_ALL",      "512Y013", "M", "AA/99988", "지수", "업황실적BSI(전산업)",     None),
+    ("BSI_ACTUAL_MFG",      "512Y013", "M", "AA/C0000", "지수", "업황실적BSI(제조업)",     None),
+    ("BSI_FORECAST_ALL",    "512Y014", "M", "BA/99988", "지수", "업황전망BSI(전산업)",     None),
+    ("BSI_FORECAST_MFG",    "512Y014", "M", "BA/C0000", "지수", "업황전망BSI(제조업)",     None),
+    ("EXPECTED_INFLATION",  "511Y003", "M", "FMB",     "%",    "향후1년 기대인플레이션율",  None),
+
+    # ── 08. 대외건전성 (v3.4 신규) ─────────────────────────────────────────
+    ("FX_RESERVES",         "732Y001", "M", "99",      "백만달러", "외환보유액 합계",       None),
+    # 901Y121: 국가별 수출입금액. T002=수출, T004=수입 (관세청 무역통계 통상 구성 기준 —
+    # discover_ecos_codes.py로 stat_code/item_code 존재는 확인했으나 T002/T004의 정확한
+    # 수출/수입 매핑은 응답의 ITEM_NAME으로 재확인 권장)
+    ("EXPORT_CN_YOY",       "901Y121", "M", "CN/T002", "%",    "대중국 수출금액 전년비",   "yoy_pct"),
+    ("IMPORT_CN_YOY",       "901Y121", "M", "CN/T004", "%",    "대중국 수입금액 전년비",   "yoy_pct"),
+    ("EXPORT_US_YOY",       "901Y121", "M", "US/T002", "%",    "대미국 수출금액 전년비",   "yoy_pct"),
+    ("IMPORT_US_YOY",       "901Y121", "M", "US/T004", "%",    "대미국 수입금액 전년비",   "yoy_pct"),
+
+    # ── 09. 가계부채·주택리스크 (v3.4 신규) ───────────────────────────────────
+    ("HOUSEHOLD_LOANS",     "151Y002", "M", "1111000", "십억원", "예금은행 가계대출",      None),
+    ("UNSOLD_HOUSING",      "901Y074", "M", "I410A",   "호",   "미분양주택(전국)",         None),
+    ("APT_PRICE_NATIONAL",  "901Y089", "M", "100",     "지수", "아파트실거래가지수(전국)", None),
+    ("APT_PRICE_SEOUL",     "901Y089", "M", "200",     "지수", "아파트실거래가지수(서울)", None),
+    ("APT_PRICE_CAPITAL",   "901Y089", "M", "300",     "지수", "아파트실거래가지수(수도권)", None),
+    ("DELINQUENCY_HOUSEHOLD", "901Y054", "M", "MO3AB", "%",   "가계대출 연체율",          None),
+    ("DELINQUENCY_BANK_ALL",  "901Y054", "M", "AB",    "%",   "은행 전체 연체율",         None),
+    # 514Y001~003: 대출행태서베이 3종(분기), 국내은행 종합. AA/BB/CC 각각이 구체적으로
+    # 수요/공급/신용기준 중 무엇인지는 discover_ecos_codes.py --stat-code 로 ITEM_NAME
+    # 재확인 권장 — 우선 원자료를 그대로 수집만 해둔다.
+    ("LOAN_SURVEY_1",       "514Y001", "Q", "AA",      "지수", "대출행태서베이1(국내은행종합)", None),
+    ("LOAN_SURVEY_2",       "514Y002", "Q", "BB",      "지수", "대출행태서베이2(국내은행종합)", None),
+    ("LOAN_SURVEY_3",       "514Y003", "Q", "CC",      "지수", "대출행태서베이3(국내은행종합)", None),
 ]
 
 # ---------------------------------------------------------------------------
@@ -461,13 +531,17 @@ SERIES_NOTES = {
     "CORP_BOND_AA_MINUS":  "[참조전용] 우량 기업 조달비용. 국채 대비 스프레드 확대 시 신용 위험 상승",
     "CORP_BOND_BBB_MINUS": "투기등급 기업 조달비용. CREDIT_SPREAD와 함께 신용 리스크 점검",
     # ── 물가 (ECOS 잔류분) ──
-    "CPI_YOY":             "[재배포 대체] KOSIS_CPI_YOY 실패 시 대체 소스. 근원CPI는 KOSIS 전용(ECOS 미검증)",
+    "CPI_YOY":             "[재배포 대체] KOSIS_CPI_YOY 실패 시 대체 소스",
+    "CORE_CPI_YOY":        "[재배포 대체] KOSIS_CORE_CPI_YOY 실패 시 대체 소스. SIG02 실질금리갭 핵심 입력",
     "PPI_YOY":             "기업 비용 압박 선행지표. CPI 3~6개월 선행 가능성",
     "IMPORT_PRICE_YOY":    "수입 비용 충격. 환율·원자재 복합 영향. 급등 시 소비자물가 전가 경계",
     # ── GDP ──
     "GDP_GROWTH_QOQ":      "[참조전용] 전분기비 성장률. 2분기 연속 음수 시 기술적 침체",
     "GDP_GROWTH_YOY":      "전년비 성장률. 잠재성장률(약 2%) 대비 위치 파악",
+    "CLI_COINCIDENT":      "[재배포 대체] KOSIS_CLI_COINCIDENT 실패 시 대체 소스. SIG08 경기사이클 핵심 입력",
+    "CLI_LEADING":         "[재배포 대체] KOSIS_CLI_LEADING 실패 시 대체 소스. SIG08 경기사이클 핵심 입력",
     "INDPRO_YOY":          "[재배포 대체] KOSIS_INDPRO_YOY 실패 시 대체 소스. 광공업생산 모멘텀(SIG09)",
+    "SERVICE_PROD_YOY":    "[재배포 대체] KOSIS_SERVICE_PROD_YOY 실패 시 대체 소스. SIG06 내수·소비 보조 입력",
     # ── 통화·유동성 ──
     "M2_YOY":              "[참조전용] 광의통화 전년비. 음수 시 디플레 우려, 10% 이상 시 과잉 유동성",
     "BASE_MONEY":          "[참조전용] 본원통화 잔액. 통화 공급 기초. YoY 감소 시 긴축 기조",
@@ -482,6 +556,33 @@ SERIES_NOTES = {
     "USD_KRW":             "[참조전용] 원/달러 환율 월평균. 상승=원화 약세. 수입물가·외화부채 압박",
     "CD_BOK_SPREAD":       "CD-기준금리 스프레드(파생). 단기 유동성 프리미엄 확대 시 경계",
     "CREDIT_SPREAD":       "회사채BBB-국채3Y 스프레드(파생). 기업 신용 리스크 핵심 지표",
+    # ── 경제심리 (v3.4 신규, 전부 [참조전용]) ──
+    "CCSI":                "[참조전용] 소비자심리지수. 100 기준, >100 낙관/<100 비관",
+    "ESI_RAW":             "[참조전용] 경제심리지수 원계열. 기업+소비자 심리 종합",
+    "ESI_CYCLE":           "[참조전용] 경제심리지수 순환변동치. 추세 제거된 방향성 참고",
+    "NEWS_SENTIMENT":      "[참조전용] 뉴스심리지수(일별). 고빈도 센티먼트, 단기 노이즈 큼",
+    "BSI_ACTUAL_ALL":      "[참조전용] 업황실적BSI(전산업). 100 기준, 기업 체감경기",
+    "BSI_ACTUAL_MFG":      "[참조전용] 업황실적BSI(제조업)",
+    "BSI_FORECAST_ALL":    "[참조전용] 업황전망BSI(전산업). 익월 전망치",
+    "BSI_FORECAST_MFG":    "[참조전용] 업황전망BSI(제조업)",
+    "EXPECTED_INFLATION":  "[참조전용] 향후1년 기대인플레이션율. SIG04(기대인플레) 미구현 상태의 원자료",
+    # ── 대외건전성 (v3.4 신규, 전부 [참조전용]) ──
+    "FX_RESERVES":         "[참조전용] 외환보유액 합계. 대외지급능력·환율방어 여력",
+    "EXPORT_CN_YOY":       "[참조전용] 대중국 수출금액 전년비. 최대 교역국 수요 체감",
+    "IMPORT_CN_YOY":       "[참조전용] 대중국 수입금액 전년비",
+    "EXPORT_US_YOY":       "[참조전용] 대미국 수출금액 전년비",
+    "IMPORT_US_YOY":       "[참조전용] 대미국 수입금액 전년비",
+    # ── 가계부채·주택리스크 (v3.4 신규, 전부 [참조전용]) ──
+    "HOUSEHOLD_LOANS":     "[참조전용] 예금은행 가계대출 잔액. 가계 레버리지 수준",
+    "UNSOLD_HOUSING":      "[참조전용] 미분양주택(전국). 공급과잉·건설경기 위험 신호",
+    "APT_PRICE_NATIONAL":  "[참조전용] 아파트실거래가지수(전국). KB지수와 교차 검증용",
+    "APT_PRICE_SEOUL":     "[참조전용] 아파트실거래가지수(서울)",
+    "APT_PRICE_CAPITAL":   "[참조전용] 아파트실거래가지수(수도권)",
+    "DELINQUENCY_HOUSEHOLD": "[참조전용] 가계대출 연체율. 상승 시 가계 상환능력 악화 신호",
+    "DELINQUENCY_BANK_ALL":  "[참조전용] 은행 전체 연체율. 시스템 신용 리스크",
+    "LOAN_SURVEY_1":       "[참조전용] 대출행태서베이1(국내은행종합, 분기). 항목 정확한 의미는 재확인 필요",
+    "LOAN_SURVEY_2":       "[참조전용] 대출행태서베이2(국내은행종합, 분기). 항목 정확한 의미는 재확인 필요",
+    "LOAN_SURVEY_3":       "[참조전용] 대출행태서베이3(국내은행종합, 분기). 항목 정확한 의미는 재확인 필요",
 }
 
 
@@ -687,20 +788,28 @@ def drop_failed(df: pd.DataFrame) -> pd.DataFrame:
 # 출력 파일 생성
 # ---------------------------------------------------------------------------
 CATEGORY_MAP = {
-    # 23개 ECOS 잔류 지표 - 물가/경기/고용/수출입 -> kosis_fetch.py 이관
+    # 51개 ECOS 잔류 지표 - 물가/경기/고용/수출입 -> kosis_fetch.py 이관
     "01_금리·채권":   ["BOK_BASE_RATE", "GOV_BOND_3Y", "GOV_BOND_10Y", "CD_91D",
                       "CORP_BOND_AA_MINUS", "CORP_BOND_BBB_MINUS"],
-    "02_물가":        ["CPI_YOY", "PPI_YOY", "IMPORT_PRICE_YOY"],
-    # CORE_CPI_YOY -> KOSIS 전용 (ECOS 재배포 코드 미검증)
-    # CLI_COINCIDENT, CLI_LEADING -> KOSIS 전용 (ECOS 직접 대체 없음)
+    "02_물가":        ["CPI_YOY", "CORE_CPI_YOY", "PPI_YOY", "IMPORT_PRICE_YOY"],
     # BSI_ALL 소거 (2023-05 이후 업데이트 없음)
-    "03_GDP":         ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY", "INDPRO_YOY"],
+    "03_GDP":         ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY", "CLI_COINCIDENT", "CLI_LEADING",
+                       "INDPRO_YOY", "SERVICE_PROD_YOY"],
     # 04_노동시장 -> KOSIS 이관 (UNEMPLOYMENT_RATE 등 4개)
     # 05_수출입 -> KOSIS 이관 (EXPORT_YOY, IMPORT_YOY)
     # CSI/RETAIL_SALES_YOY 소거 (API 데이터 부재)
     "04_통화·유동성":  ["M2_YOY", "BASE_MONEY", "BANK_LOANS"],
     "05_주택시장":    ["KB_HOUSE_YOY", "KB_JEONSE_YOY", "HOUSING_START"],
     "06_금융시장":    ["KOSPI", "KOSDAQ", "USD_KRW", "CD_BOK_SPREAD", "CREDIT_SPREAD"],
+    "07_경제심리":    ["CCSI", "ESI_RAW", "ESI_CYCLE", "NEWS_SENTIMENT",
+                      "BSI_ACTUAL_ALL", "BSI_ACTUAL_MFG", "BSI_FORECAST_ALL", "BSI_FORECAST_MFG",
+                      "EXPECTED_INFLATION"],
+    "08_대외건전성":  ["FX_RESERVES", "EXPORT_CN_YOY", "IMPORT_CN_YOY",
+                      "EXPORT_US_YOY", "IMPORT_US_YOY"],
+    "09_가계부채·주택리스크": ["HOUSEHOLD_LOANS", "UNSOLD_HOUSING",
+                      "APT_PRICE_NATIONAL", "APT_PRICE_SEOUL", "APT_PRICE_CAPITAL",
+                      "DELINQUENCY_HOUSEHOLD", "DELINQUENCY_BANK_ALL",
+                      "LOAN_SURVEY_1", "LOAN_SURVEY_2", "LOAN_SURVEY_3"],
 }
 
 
