@@ -3,6 +3,18 @@ scripts/ecos_signals.py
 data/macro_latest.csv 를 읽어 12개 파생 신호와 종합 위험도를 계산하고
 data/ecos_signals.md 를 생성합니다.
 
+v3.6 (2026-07-22): SIG07·SIG13 구성요소 축소 — 실측 fetch 검증에서 무효 코드 확인
+  - DELINQUENCY_BANK_ALL(901Y054/AB), BSI_ACTUAL_ALL(512Y013/AA:99988),
+    BSI_FORECAST_ALL(512Y014/BA:99988)가 실제 ECOS_API_KEY로 StatisticSearch를
+    돌려보니 [INFO-200] 오류(무효 stat_code/item_code 조합)로 확인되어
+    ecos_fetch.py SERIES에서 제거됨 — v3.5에서 이 값들에 의존하던 SIG07·SIG13도
+    함께 수정
+  - SIG07 신용 스트레스: 4→3 구성요소(DELINQUENCY_BANK_ALL 제거, DELINQUENCY_HOUSEHOLD는
+    유지 — 같은 901Y054 표의 MO3AB 항목은 정상 fetch 확인됨)
+  - SIG13 경제심리 종합: 4→2 구성요소(BSI_ACTUAL_ALL·BSI_FORECAST_ALL 제거,
+    CCSI·ESI_CYCLE만 유지). BSI_ACTUAL_MFG/BSI_FORECAST_MFG도 코드 자체가 무효로
+    확인돼 detail 참고 표시에서 제거
+
 v3.5 (2026-07-22): SIG04·SIG13 신규 구현, SIG07·SIG11 확장 (참조전용 8종 편입)
   - SIG04 기대인플레 디앵커링 신규: EXPECTED_INFLATION(511Y003/FMB) 확보로 구현
     (v3.4까지 "BOK 서베이 데이터 비공개"로 미구현 상태였으나 실측 조회로 확보됨)
@@ -52,8 +64,9 @@ v2.2 (2026-05-26):
   SIG11 주택시장: KB주택가격지수(YoY) 기반으로 재설계
 
 소거된 신호:
-  SIG10 수출 모멘텀 — KOSIS 관세청 수출입 Open API tblId 미확인 (v1.2 제거,
-    단 EXPORT_CN_YOY/EXPORT_US_YOY 참조전용 원자료는 v3.4에서 확보됨)
+  SIG10 수출 모멘텀 — KOSIS 관세청 수출입 Open API tblId 미확인 (v1.2 제거).
+    v3.4에서 ECOS EXPORT_CN_YOY/EXPORT_US_YOY(901Y121)로 대체를 시도했으나
+    실측 fetch에서 INFO-200 확인되어 v3.6에서 완전히 제거됨 — 대체 원자료 없음
 """
 
 import sys
@@ -368,17 +381,20 @@ def sig_06_domestic_demand(d: dict) -> dict:
 
 
 def sig_07_credit_stress(d: dict) -> dict:
-    """7. 신용 스트레스 (회사채-국채 스프레드, CD-기준금리 스프레드, 가계·은행 연체율)"""
+    """7. 신용 스트레스 (회사채-국채 스프레드, CD-기준금리 스프레드, 가계대출 연체율)
+
+    DELINQUENCY_BANK_ALL(901Y054/AB)은 v3.6에서 제거됨 — 실측 fetch 결과 [INFO-200]
+    (무효 stat_code/item_code 조합)으로 확인. 같은 표(901Y054)의 DELINQUENCY_HOUSEHOLD
+    (MO3AB)는 정상 fetch되어 그대로 유지.
+    """
     credit_sp = g(d, "CREDIT_SPREAD")
     cd_sp     = g(d, "CD_BOK_SPREAD")
     delinq_hh = g(d, "DELINQUENCY_HOUSEHOLD")
-    delinq_bk = g(d, "DELINQUENCY_BANK_ALL")
     s_credit  = score_0_10(credit_sp, 0.3, 4.0) if credit_sp is not None else None
     s_cd      = score_0_10(cd_sp, 0.0, 1.5)     if cd_sp     is not None else None
-    # 제안값 — 확정 전 검토 권장: 국내 가계/은행 연체율 실측 위기구간 앵커 미확인.
+    # 제안값 — 확정 전 검토 권장: 국내 가계 연체율 실측 위기구간 앵커 미확인.
     s_delinq_hh = score_0_10(delinq_hh, 0.3, 2.0) if delinq_hh is not None else None
-    s_delinq_bk = score_0_10(delinq_bk, 0.3, 1.5) if delinq_bk is not None else None
-    vals  = [v for v in [s_credit, s_cd, s_delinq_hh, s_delinq_bk] if v is not None]
+    vals  = [v for v in [s_credit, s_cd, s_delinq_hh] if v is not None]
     score = round(float(np.mean(vals)), 2) if vals else None
     bbb_chg    = g(d, "CORP_BOND_BBB_MINUS__chg_prev")
     bond3y_chg = g(d, "GOV_BOND_3Y__chg_prev")
@@ -389,8 +405,8 @@ def sig_07_credit_stress(d: dict) -> dict:
         "date": gdate(d, "CREDIT_SPREAD"),
         "chg_prev": chg_prev, "chg_unit": "%p",
         "detail": (f"회사채BBB-국채3Y({fmt(credit_sp)}%p) / CD-기준금리({fmt(cd_sp)}%p) / "
-                   f"가계대출연체율({fmt(delinq_hh)}%) / 은행전체연체율({fmt(delinq_bk)}%)"
-                   f"{_coverage_note(vals, 4)}"),
+                   f"가계대출연체율({fmt(delinq_hh)}%)"
+                   f"{_coverage_note(vals, 3)}"),
         "threshold": ("크레딧 스프레드 ≥2.0 경계 / ≥3.0 위험 / "
                       "연체율(제안값·확정 전 검토 권장) ≥1.5 경계"),
         "score": score,
@@ -494,29 +510,25 @@ def sig_12_kospi_regime(d: dict) -> dict:
 
 
 def sig_13_economic_sentiment(d: dict) -> dict:
-    """13. 경제심리 종합 (CCSI, ESI순환변동치, BSI실적·전망[전산업] 복합)
+    """13. 경제심리 종합 (CCSI, ESI순환변동치 복합)
 
-    ESI_RAW/NEWS_SENTIMENT(고빈도)/BSI_ACTUAL_MFG·BSI_FORECAST_MFG(제조업 서브지표)는
-    detail 참고 표시만, 점수 미반영 — 경성지표(SIG06·SIG08)와 분리된 '기대·심리'
-    신호로 유지해 연성-경성 데이터 괴리 자체를 신호로 남긴다.
+    BSI_ACTUAL_ALL/MFG·BSI_FORECAST_ALL/MFG(512Y013/512Y014)는 v3.6에서 제거됨 —
+    실측 fetch 결과 전부 [INFO-200](무효 stat_code/item_code 조합)으로 확인,
+    ecos_fetch.py SERIES에서도 제거되어 더 이상 조회 대상 아님.
+    ESI_RAW/NEWS_SENTIMENT(고빈도)는 detail 참고 표시만, 점수 미반영 — 경성지표
+    (SIG06·SIG08)와 분리된 '기대·심리' 신호로 유지해 연성-경성 데이터 괴리 자체를
+    신호로 남긴다.
     """
-    ccsi        = g(d, "CCSI")
-    esi_cyc     = g(d, "ESI_CYCLE")
-    esi_raw     = g(d, "ESI_RAW")
-    bsi_act     = g(d, "BSI_ACTUAL_ALL")
-    bsi_act_mfg = g(d, "BSI_ACTUAL_MFG")
-    bsi_fc      = g(d, "BSI_FORECAST_ALL")
-    bsi_fc_mfg  = g(d, "BSI_FORECAST_MFG")
-    news        = g(d, "NEWS_SENTIMENT")
+    ccsi     = g(d, "CCSI")
+    esi_cyc  = g(d, "ESI_CYCLE")
+    esi_raw  = g(d, "ESI_RAW")
+    news     = g(d, "NEWS_SENTIMENT")
 
     # 제안값 — 확정 전 검토 권장: 100=중립 기준선은 심리지수 계열 공통 관행이나 저역/고역
-    # 폭은 한국 실측 경기저점·과열기 데이터로 검증 안 됨. BSI는 국내 특유의 60~100대
-    # 저역 관행 반영해 CLI(94~102)보다 폭을 넓게 잡음.
+    # 폭은 한국 실측 경기저점·과열기 데이터로 검증 안 됨.
     s_ccsi    = score_0_10(ccsi,    70.0, 115.0, invert=True) if ccsi    is not None else None
     s_esi_cyc = score_0_10(esi_cyc, 92.0, 108.0, invert=True) if esi_cyc is not None else None
-    s_bsi_act = score_0_10(bsi_act, 60.0, 100.0, invert=True) if bsi_act is not None else None
-    s_bsi_fc  = score_0_10(bsi_fc,  60.0, 100.0, invert=True) if bsi_fc  is not None else None
-    vals  = [v for v in [s_ccsi, s_esi_cyc, s_bsi_act, s_bsi_fc] if v is not None]
+    vals  = [v for v in [s_ccsi, s_esi_cyc] if v is not None]
     score = round(float(np.mean(vals)), 2) if vals else None
     chg_prev = g(d, "CCSI__chg_prev")
     return {
@@ -524,13 +536,11 @@ def sig_13_economic_sentiment(d: dict) -> dict:
         "value": ccsi, "unit": "지수 (CCSI)",
         "date": gdate(d, "CCSI"),
         "chg_prev": chg_prev, "chg_unit": "pt",
-        "detail": (f"CCSI({fmt(ccsi)}) / ESI순환치({fmt(esi_cyc)}) / "
-                   f"BSI실적·전산업({fmt(bsi_act)}) / BSI전망·전산업({fmt(bsi_fc)})"
-                   f"{_coverage_note(vals, 4)} "
+        "detail": (f"CCSI({fmt(ccsi)}) / ESI순환치({fmt(esi_cyc)})"
+                   f"{_coverage_note(vals, 2)} "
                    f"— 참고(점수 미반영): ESI원계열({fmt(esi_raw)}) / "
-                   f"BSI실적·제조업({fmt(bsi_act_mfg)}) / BSI전망·제조업({fmt(bsi_fc_mfg)}) / "
                    f"뉴스심리·일별({fmt(news)})"),
-        "threshold": "제안값(확정 전 검토 권장) CCSI ≤85 비관 경계 / BSI(전산업) ≤70 위축 경계",
+        "threshold": "제안값(확정 전 검토 권장) CCSI ≤85 비관 경계",
         "score": score,
     }
 
