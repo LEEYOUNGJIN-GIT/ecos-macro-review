@@ -38,6 +38,17 @@ ECOS 측 재수집 재개):
   RETAIL_SALES_YOY (402Y015/*AA) - 최신 데이터 2024-10 (7개월 지연) + item_code 오류 이력
 
 수정 이력:
+  v3.5 (2026-07-22): 신규지표 24종 중 8종을 ecos_signals.py 판정 수식에 편입
+  - APT_PRICE_NATIONAL calc_type을 None(원계열 지수) → yoy_pct 로 변경 — SIG11에서
+    KB_HOUSE_YOY와 동일 스케일(%YoY)로 병행 스코어링하기 위함
+  - SERIES_NOTES 갱신: EXPECTED_INFLATION(SIG04 신규), DELINQUENCY_HOUSEHOLD/BANK_ALL
+    (SIG07 확장), UNSOLD_HOUSING·APT_PRICE_NATIONAL(SIG11 확장), CCSI·ESI_CYCLE·
+    BSI_ACTUAL_ALL·BSI_FORECAST_ALL(SIG13 신규)는 [참조전용] 표기를 제거하고
+    [SIGxx ...] 로 교체. 나머지 16종은 참조전용 유지, 보류 사유(스톡 지표/매핑
+    미검증)를 노트에 명시
+  - FX_RESERVES·HOUSEHOLD_LOANS, LOAN_SURVEY_1~3, EXPORT/IMPORT_CN·US_YOY는 이번
+    라운드에서 편입 보류(전자는 스톡 지표라 임계치 근거 부족, 후자는 의미/매핑 미검증)
+
   v3.4 (2026-07-22): CORE_CPI_YOY·CLI×2·SERVICE_PROD_YOY 재배포 대체 확보 + 신규 참고지표 24종
   - discover_ecos_codes.py 실측 조회로 CORE_CPI_YOY(901Y010/QB), CLI_COINCIDENT
     (901Y067/I16D), CLI_LEADING(901Y067/I16E), SERVICE_PROD_YOY(901Y038/I51A)의
@@ -255,7 +266,7 @@ SERIES = [
     # ── 09. 가계부채·주택리스크 (v3.4 신규) ───────────────────────────────────
     ("HOUSEHOLD_LOANS",       "151Y002",  "M", "1111000",          "십억원",  "예금은행 가계대출", None),
     ("UNSOLD_HOUSING",        "901Y074",  "M", "I410A",            "호",    "미분양주택(전국)", None),
-    ("APT_PRICE_NATIONAL",    "901Y089",  "M", "100",              "지수",   "아파트실거래가지수(전국)", None),
+    ("APT_PRICE_NATIONAL",    "901Y089",  "M", "100",              "%",    "아파트실거래가지수(전국) 전년비", "yoy_pct"),
     ("APT_PRICE_SEOUL",       "901Y089",  "M", "200",              "지수",   "아파트실거래가지수(서울)", None),
     ("APT_PRICE_CAPITAL",     "901Y089",  "M", "300",              "지수",   "아파트실거래가지수(수도권)", None),
     ("DELINQUENCY_HOUSEHOLD", "901Y054",  "M", "MO3AB",            "%",    "가계대출 연체율", None),
@@ -564,30 +575,30 @@ SERIES_NOTES = {
     "USD_KRW":                "[참조전용] 원/달러 환율 월평균. 상승=원화 약세. 수입물가·외화부채 압박",
     "CD_BOK_SPREAD":          "CD-기준금리 스프레드(파생). 단기 유동성 프리미엄 확대 시 경계",
     "CREDIT_SPREAD":          "회사채BBB-국채3Y 스프레드(파생). 기업 신용 리스크 핵심 지표",
-    # ── 경제심리 (v3.4 신규, 전부 [참조전용]) ──
-    "CCSI":                   "[참조전용] 소비자심리지수. 100 기준, >100 낙관/<100 비관",
-    "ESI_RAW":                "[참조전용] 경제심리지수 원계열. 기업+소비자 심리 종합",
-    "ESI_CYCLE":              "[참조전용] 경제심리지수 순환변동치. 추세 제거된 방향성 참고",
-    "NEWS_SENTIMENT":         "[참조전용] 뉴스심리지수(일별). 고빈도 센티먼트, 단기 노이즈 큼",
-    "BSI_ACTUAL_ALL":         "[참조전용] 업황실적BSI(전산업). 100 기준, 기업 체감경기",
-    "BSI_ACTUAL_MFG":         "[참조전용] 업황실적BSI(제조업)",
-    "BSI_FORECAST_ALL":       "[참조전용] 업황전망BSI(전산업). 익월 전망치",
-    "BSI_FORECAST_MFG":       "[참조전용] 업황전망BSI(제조업)",
-    "EXPECTED_INFLATION":     "[참조전용] 향후1년 기대인플레이션율. SIG04(기대인플레) 미구현 상태의 원자료",
+    # ── 경제심리 (v3.4 신규) ──
+    "CCSI":                   "[SIG13 경제심리 종합] 소비자심리지수. 100 기준, >100 낙관/<100 비관",
+    "ESI_RAW":                "[참조전용] 경제심리지수 원계열. SIG13 상세문에 참고 표시만, 점수 미반영(ESI_CYCLE 채택)",
+    "ESI_CYCLE":              "[SIG13 경제심리 종합] 경제심리지수 순환변동치. 추세 제거된 방향성 참고",
+    "NEWS_SENTIMENT":         "[참조전용] 뉴스심리지수(일별). SIG13 상세문에 참고 표시만, 점수 미반영(고빈도 노이즈)",
+    "BSI_ACTUAL_ALL":         "[SIG13 경제심리 종합] 업황실적BSI(전산업). 100 기준, 기업 체감경기",
+    "BSI_ACTUAL_MFG":         "[참조전용] 업황실적BSI(제조업). SIG13 상세문에 참고 표시만, 점수 미반영(전산업만 채점)",
+    "BSI_FORECAST_ALL":       "[SIG13 경제심리 종합] 업황전망BSI(전산업). 익월 전망치",
+    "BSI_FORECAST_MFG":       "[참조전용] 업황전망BSI(제조업). SIG13 상세문에 참고 표시만, 점수 미반영(전산업만 채점)",
+    "EXPECTED_INFLATION":     "[SIG04 기대인플레 디앵커링] 향후1년 기대인플레이션율. KOSIS 대체 없음(ECOS 단일 소스)",
     # ── 대외건전성 (v3.4 신규, 전부 [참조전용]) ──
-    "FX_RESERVES":            "[참조전용] 외환보유액 합계. 대외지급능력·환율방어 여력",
-    "EXPORT_CN_YOY":          "[참조전용] 대중국 수출금액 전년비. 최대 교역국 수요 체감",
-    "IMPORT_CN_YOY":          "[참조전용] 대중국 수입금액 전년비",
-    "EXPORT_US_YOY":          "[참조전용] 대미국 수출금액 전년비",
-    "IMPORT_US_YOY":          "[참조전용] 대미국 수입금액 전년비",
-    # ── 가계부채·주택리스크 (v3.4 신규, 전부 [참조전용]) ──
-    "HOUSEHOLD_LOANS":        "[참조전용] 예금은행 가계대출 잔액. 가계 레버리지 수준",
-    "UNSOLD_HOUSING":         "[참조전용] 미분양주택(전국). 공급과잉·건설경기 위험 신호",
-    "APT_PRICE_NATIONAL":     "[참조전용] 아파트실거래가지수(전국). KB지수와 교차 검증용",
+    "FX_RESERVES":            "[참조전용] 외환보유액 합계. 대외지급능력·환율방어 여력. 스톡 지표라 임계치 미확정, 편입 보류",
+    "EXPORT_CN_YOY":          "[참조전용] 대중국 수출금액 전년비. 최대 교역국 수요 체감. T002 매핑 미검증, 편입 보류",
+    "IMPORT_CN_YOY":          "[참조전용] 대중국 수입금액 전년비. T004 매핑 미검증, 편입 보류",
+    "EXPORT_US_YOY":          "[참조전용] 대미국 수출금액 전년비. T002 매핑 미검증, 편입 보류",
+    "IMPORT_US_YOY":          "[참조전용] 대미국 수입금액 전년비. T004 매핑 미검증, 편입 보류",
+    # ── 가계부채·주택리스크 (v3.4 신규) ──
+    "HOUSEHOLD_LOANS":        "[참조전용] 예금은행 가계대출 잔액. 가계 레버리지 수준. 스톡 지표라 임계치 미확정, 편입 보류",
+    "UNSOLD_HOUSING":         "[SIG11 주택시장] 미분양주택(전국). 공급과잉 스코어링 반영",
+    "APT_PRICE_NATIONAL":     "[SIG11 주택시장] 아파트실거래가지수(전국) 전년비. KB매매가격YoY와 병행 스코어링",
     "APT_PRICE_SEOUL":        "[참조전용] 아파트실거래가지수(서울)",
     "APT_PRICE_CAPITAL":      "[참조전용] 아파트실거래가지수(수도권)",
-    "DELINQUENCY_HOUSEHOLD":  "[참조전용] 가계대출 연체율. 상승 시 가계 상환능력 악화 신호",
-    "DELINQUENCY_BANK_ALL":   "[참조전용] 은행 전체 연체율. 시스템 신용 리스크",
+    "DELINQUENCY_HOUSEHOLD":  "[SIG07 신용 스트레스] 가계대출 연체율. 크레딧·CD 스프레드와 병행 스코어링(실현 신용스트레스)",
+    "DELINQUENCY_BANK_ALL":   "[SIG07 신용 스트레스] 은행 전체 연체율. 상동",
     "LOAN_SURVEY_1":          "[참조전용] 대출행태서베이1(국내은행종합, 분기). 항목 정확한 의미는 재확인 필요",
     "LOAN_SURVEY_2":          "[참조전용] 대출행태서베이2(국내은행종합, 분기). 항목 정확한 의미는 재확인 필요",
     "LOAN_SURVEY_3":          "[참조전용] 대출행태서베이3(국내은행종합, 분기). 항목 정확한 의미는 재확인 필요",

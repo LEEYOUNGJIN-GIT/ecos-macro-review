@@ -9,10 +9,15 @@
 > 비어 있으면 자동으로 이 ECOS 값으로 대체한다 — 상세는 `data/kosis_status_log.csv`(일자별
 > 성공/실패 이력)와 `data/kosis_latest.md` 상단의 최근 수집 이력 표 참고.
 >
-> **신규 참고지표 24종 (v3.4)**: 소비자심리(CCSI)·ESI·뉴스심리지수·BSI·기대인플레이션·
+> **신규지표 24종 (v3.4 추가)**: 소비자심리(CCSI)·ESI·뉴스심리지수·BSI·기대인플레이션·
 > 외환보유액·국가별 수출입·가계대출·미분양주택·아파트실거래가·연체율·대출행태서베이 —
-> 전부 `discover_ecos_codes.py`로 stat_code/item_code 실측 확인 후 추가. 신호/레짐 계산에는
-> 쓰이지 않는 **[참조전용]** 팩트 데이터.
+> 전부 `discover_ecos_codes.py`로 stat_code/item_code 실측 확인 후 추가.
+>
+> **8종 신호 편입 (v3.5)**: EXPECTED_INFLATION(SIG04 신규), DELINQUENCY_HOUSEHOLD/BANK_ALL
+> (SIG07 확장), UNSOLD_HOUSING·APT_PRICE_NATIONAL(SIG11 확장), CCSI·ESI_CYCLE·
+> BSI_ACTUAL_ALL·BSI_FORECAST_ALL(SIG13 신규)는 검증된 의미의 지표만 우선 판정 수식에
+> 편입했고, 나머지 16종(대외건전성 전체·LOAN_SURVEY 등 의미/매핑 미검증분, FX_RESERVES·
+> HOUSEHOLD_LOANS 등 스톡 지표)은 **[참조전용]**으로 유지.
 
 ---
 
@@ -32,7 +37,7 @@
        ┌──────┴──────┐
        ▼             ▼
  ecos_signals.py  ecos_regime.py
-  10개 신호 계산    레짐 분류
+  12개 신호 계산    레짐 분류
    (KOSIS 우선,      (KOSIS 우선,
     ECOS 대체)        ECOS 대체)
        │             │
@@ -84,24 +89,28 @@
 
 > **KOSPI**: ECOS 802Y001 일별 수집. 레짐 성장 점수에서 제외, SIG12에서만 사용.
 
-**신규 참고지표 24개 (v3.4, 전부 [참조전용] — 신호/레짐 미사용)**
+**신규지표 24개 (v3.4 추가, 8종은 v3.5에서 신호 편입)**
 
-| 카테고리 | series_id | stat_code/item_code |
-|---|---|---|
-| 07_경제심리 | CCSI | 511Y002/FME |
-| 07_경제심리 | ESI_RAW, ESI_CYCLE | 513Y001/E1000, E2000 |
-| 07_경제심리 | NEWS_SENTIMENT | 521Y001/A001 (일별) |
-| 07_경제심리 | BSI_ACTUAL_ALL, BSI_ACTUAL_MFG | 512Y013/AA·99988, AA·C0000 |
-| 07_경제심리 | BSI_FORECAST_ALL, BSI_FORECAST_MFG | 512Y014/BA·99988, BA·C0000 |
-| 07_경제심리 | EXPECTED_INFLATION | 511Y003/FMB |
-| 08_대외건전성 | FX_RESERVES | 732Y001/99 |
-| 08_대외건전성 | EXPORT_CN_YOY, IMPORT_CN_YOY | 901Y121/CN·T002, CN·T004 |
-| 08_대외건전성 | EXPORT_US_YOY, IMPORT_US_YOY | 901Y121/US·T002, US·T004 |
-| 09_가계부채·주택리스크 | HOUSEHOLD_LOANS | 151Y002/1111000 |
-| 09_가계부채·주택리스크 | UNSOLD_HOUSING | 901Y074/I410A |
-| 09_가계부채·주택리스크 | APT_PRICE_NATIONAL/SEOUL/CAPITAL | 901Y089/100, 200, 300 |
-| 09_가계부채·주택리스크 | DELINQUENCY_HOUSEHOLD, DELINQUENCY_BANK_ALL | 901Y054/MO3AB, AB |
-| 09_가계부채·주택리스크 | LOAN_SURVEY_1/2/3 | 514Y001~003/AA, BB, CC |
+| 카테고리 | series_id | stat_code/item_code | 신호 사용 |
+|---|---|---|---|
+| 07_경제심리 | CCSI | 511Y002/FME | SIG13 |
+| 07_경제심리 | ESI_CYCLE | 513Y001/E2000 | SIG13 |
+| 07_경제심리 | ESI_RAW | 513Y001/E1000 | 참조전용 |
+| 07_경제심리 | NEWS_SENTIMENT | 521Y001/A001 (일별) | 참조전용 |
+| 07_경제심리 | BSI_ACTUAL_ALL | 512Y013/AA·99988 | SIG13 |
+| 07_경제심리 | BSI_ACTUAL_MFG | 512Y013/AA·C0000 | 참조전용 |
+| 07_경제심리 | BSI_FORECAST_ALL | 512Y014/BA·99988 | SIG13 |
+| 07_경제심리 | BSI_FORECAST_MFG | 512Y014/BA·C0000 | 참조전용 |
+| 07_경제심리 | EXPECTED_INFLATION | 511Y003/FMB | SIG04 |
+| 08_대외건전성 | FX_RESERVES | 732Y001/99 | 참조전용 |
+| 08_대외건전성 | EXPORT_CN_YOY, IMPORT_CN_YOY | 901Y121/CN·T002, CN·T004 | 참조전용 |
+| 08_대외건전성 | EXPORT_US_YOY, IMPORT_US_YOY | 901Y121/US·T002, US·T004 | 참조전용 |
+| 09_가계부채·주택리스크 | HOUSEHOLD_LOANS | 151Y002/1111000 | 참조전용 |
+| 09_가계부채·주택리스크 | UNSOLD_HOUSING | 901Y074/I410A | SIG11 |
+| 09_가계부채·주택리스크 | APT_PRICE_NATIONAL | 901Y089/100 | SIG11 |
+| 09_가계부채·주택리스크 | APT_PRICE_SEOUL, APT_PRICE_CAPITAL | 901Y089/200, 300 | 참조전용 |
+| 09_가계부채·주택리스크 | DELINQUENCY_HOUSEHOLD, DELINQUENCY_BANK_ALL | 901Y054/MO3AB, AB | SIG07 |
+| 09_가계부채·주택리스크 | LOAN_SURVEY_1/2/3 | 514Y001~003/AA, BB, CC | 참조전용 |
 
 > 지표별 해석 노트는 `ecos_fetch.py`의 `SERIES_NOTES`에 있음. `EXPORT/IMPORT_CN·US_YOY`의
 > T002/T004 수출입 매핑, `LOAN_SURVEY_1~3`의 AA/BB/CC 항목 의미는 관행적 추정이며 ITEM_NAME
@@ -128,23 +137,26 @@
 
 ---
 
-## 신호 대시보드 (10개)
+## 신호 대시보드 (12개)
 
 | ID | 신호명 | 입력 지표 | 레인지 |
 |----|--------|---------|-------|
 | SIG01 | 장단기 금리 스프레드 | GOV_BOND_10Y - BOK_BASE_RATE | %p |
 | SIG02 | 실질금리 갭 | BOK_BASE_RATE - KOSIS_CORE_CPI_YOY(대체: CORE_CPI_YOY) | %p |
 | SIG03 | 인플레이션 레짐 | KOSIS_CPI_YOY(대체: CPI_YOY), KOSIS_CORE_CPI_YOY(대체: CORE_CPI_YOY), PPI_YOY | % 복합 |
+| SIG04 | 기대인플레 디앵커링 (v3.5) | EXPECTED_INFLATION (KOSIS 대체 없음) | % |
 | SIG05 | 노동시장 종합 | KOSIS_UNEMP_RATE, KOSIS_EMP_CHANGE, KOSIS_EMP_RATE | % |
 | SIG06 | 내수·소비 | KOSIS_RETAIL_YOY, KOSIS_SERVICE_PROD_YOY(대체: SERVICE_PROD_YOY) | % YoY |
-| SIG07 | 신용 스트레스 | CREDIT_SPREAD, CD_BOK_SPREAD | %p |
+| SIG07 | 신용 스트레스 | CREDIT_SPREAD, CD_BOK_SPREAD, DELINQUENCY_HOUSEHOLD, DELINQUENCY_BANK_ALL (v3.5 확장) | %p / % |
 | SIG08 | 경기 사이클 | KOSIS_CLI_COINCIDENT(대체: CLI_COINCIDENT), KOSIS_CLI_LEADING(대체: CLI_LEADING) | 지수 |
 | SIG09 | 산업생산 모멘텀 | KOSIS_INDPRO_YOY(대체: INDPRO_YOY) | % YoY |
-| SIG11 | 주택시장 | KB_HOUSE_YOY, KB_JEONSE_YOY, HOUSING_START | % / 지수 |
+| SIG11 | 주택시장 | KB_HOUSE_YOY, KB_JEONSE_YOY, HOUSING_START, UNSOLD_HOUSING, APT_PRICE_NATIONAL (v3.5 확장) | % / 지수 / 호 |
 | SIG12 | KOSPI 레짐 | KOSPI | pt |
+| SIG13 | 경제심리 종합 (v3.5) | CCSI, ESI_CYCLE, BSI_ACTUAL_ALL, BSI_FORECAST_ALL | 지수 |
 
-> **미구현**: SIG04 기대인플레 디앵커링(원자료 `EXPECTED_INFLATION` 참조전용 수집만 됨, 신호 미계산),
-> SIG10 수출 모멘텀(KOSIS 관세청 API 미연동 — `EXPORT_CN_YOY`/`EXPORT_US_YOY` 참조전용 원자료는 있음).
+> **미구현**: SIG10 수출 모멘텀(KOSIS 관세청 API 미연동 — `EXPORT_CN_YOY`/`EXPORT_US_YOY` 참조전용 원자료는 있음).
+> SIG04·SIG07·SIG11·SIG13의 신규 임계치는 전부 제안값(확정 전 검토 권장) — 한국 실측
+> 위기구간 데이터로 검증되지 않음. 상세 근거는 각 신호 함수 docstring/주석 참고.
 
 ---
 
@@ -172,13 +184,13 @@
 
 ```
 ecos-macro-review/
-├── ecos_fetch.py                  ECOS 51개 시리즈 수집 (6종은 KOSIS 재배포 대체, 24종은 참조전용 신규)
+├── ecos_fetch.py                  ECOS 51개 시리즈 수집 (6종은 KOSIS 재배포 대체, 24종 신규 — 8종은 신호 편입, 16종 참조전용)
 ├── kosis_fetch.py                 KOSIS 11개 지표 수집 + 일자별 수집 이력 로그
 ├── discover_ecos_codes.py         ECOS stat_code/item_code 실측 조회 헬퍼 (신규 시리즈 추가 전 검증용)
 ├── scripts/
 │   ├── merge_macro.py             ECOS+KOSIS 병합 → macro_latest.csv
 │   ├── validate_macro.py          병합 결과 품질 검증 (CI에서 실행)
-│   ├── ecos_signals.py            10개 신호 계산 (KOSIS 우선, ECOS 대체)
+│   ├── ecos_signals.py            12개 신호 계산 (KOSIS 우선, ECOS 대체)
 │   └── ecos_regime.py             레짐 분류 + 커버리지 신뢰도 표시 (KOSIS 우선, ECOS 대체)
 ├── data/
 │   ├── ecos_latest.csv / .md      ECOS 51개 원천 (07_경제심리·08_대외건전성·09_가계부채·주택리스크 포함)
