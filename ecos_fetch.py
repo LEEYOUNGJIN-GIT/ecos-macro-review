@@ -1,6 +1,6 @@
 """
 ecos_fetch.py
-한국은행 ECOS API에서 51개 거시경제 지표를 수집하고
+한국은행 ECOS API에서 39개 거시경제 지표를 수집하고
 data/ecos_latest.csv 및 data/ecos_latest.md 를 생성합니다.
 
 KOSIS 재배포 대체 소스 (v3.2, v3.4 — GitHub Actions 환경에서 KOSIS(통계청) API가
@@ -16,11 +16,11 @@ KOSIS 재배포 대체 소스 (v3.2, v3.4 — GitHub Actions 환경에서 KOSIS(
 근원CPI·CLI·서비스업생산은 v3.0~v3.3까지 "ECOS 대체 없음"으로 문서화했었으나
 discover_ecos_codes.py 실측 조회로 그 전제가 틀렸음이 드러나 v3.4에서 추가됨.
 
-신규 참고지표 24종 (v3.4, 전부 [참조전용] — 신호/레짐 미사용): 07_경제심리
-(CCSI·ESI·뉴스심리지수·BSI·기대인플레이션), 08_대외건전성(외환보유액·국가별
-수출입), 09_가계부채·주택리스크(가계대출·미분양주택·아파트실거래가·연체율·
-대출행태서베이). LOAN_SURVEY_1~3의 AA/BB/CC 항목 의미, EXPORT/IMPORT_CN·US_YOY의
-T002/T004 수출입 매핑은 관행적 추정 — ITEM_NAME 재확인 권장.
+신규 참고지표 24종 (v3.4)은 이후 실측 fetch 검증에서 12종이 INFO-200(존재하지
+않는 stat_code/item_code 조합)으로 확인되어 v3.6에서 제거됨 — 현재 12종 잔존:
+07_경제심리(CCSI·ESI원계열/순환변동치·뉴스심리지수·기대인플레이션),
+08_대외건전성(외환보유액), 09_가계부채·주택리스크(가계대출·미분양주택·
+아파트실거래가 3종·가계연체율). 상세는 아래 v3.6 changelog 참고.
 
 KOSIS 이관 완료 시리즈 (v3.0 - kosis_fetch.py 로 이전, 위 6종은 v3.2/v3.4에서
 ECOS 측 재수집 재개):
@@ -38,6 +38,24 @@ ECOS 측 재수집 재개):
   RETAIL_SALES_YOY (402Y015/*AA) - 최신 데이터 2024-10 (7개월 지연) + item_code 오류 이력
 
 수정 이력:
+  v3.6 (2026-07-22): 실측 fetch 검증으로 확인된 무효 stat_code/item_code 12종 제거
+  - v3.4에서 추측·discover_ecos_codes.py의 StatisticItemList 조회로만 확인하고
+    추가했던 신규지표 24종 중, 실제 ECOS_API_KEY로 StatisticSearch(실 데이터 조회)를
+    돌려보니 12종이 전부 [INFO-200] "해당하는 데이터가 없습니다" 오류로 확인됨 —
+    StatisticItemList가 항목 존재를 보여줘도 실제 시계열 데이터 조회는 별개 API
+    호출이라는 것을 이번에 확인. discover_ecos_codes.py만으로는 부족하고, 실제
+    ecos_fetch.py 전체 실행으로 fetch 성공 여부까지 검증해야 함을 시사
+  - 제거: BSI_ACTUAL_ALL/MFG(512Y013), BSI_FORECAST_ALL/MFG(512Y014),
+    EXPORT_CN_YOY/IMPORT_CN_YOY/EXPORT_US_YOY/IMPORT_US_YOY(901Y121),
+    DELINQUENCY_BANK_ALL(901Y054/AB), LOAN_SURVEY_1/2/3(514Y001~003)
+  - DELINQUENCY_BANK_ALL은 SIG07(신용 스트레스), BSI_ACTUAL_ALL·BSI_FORECAST_ALL은
+    SIG13(경제심리 종합)에 v3.5에서 이미 편입돼 있었으므로 두 신호 함수도 함께 수정
+    (scripts/ecos_signals.py — SIG07 4→3 구성요소, SIG13 4→2 구성요소)
+  - 참고로 901Y054/MO3AB(가계대출연체율)는 정상 fetch 성공 — 같은 통계표(901Y054)
+    안에서도 item_code별로 유효성이 갈린다는 뜻이라 "표가 존재하면 항목도 다
+    유효하다"고 가정하면 안 됨
+  - SERIES 51→39개, CATEGORY_MAP 07/08/09 갱신
+
   v3.5 (2026-07-22): 신규지표 24종 중 8종을 ecos_signals.py 판정 수식에 편입
   - APT_PRICE_NATIONAL calc_type을 None(원계열 지수) → yoy_pct 로 변경 — SIG11에서
     KB_HOUSE_YOY와 동일 스케일(%YoY)로 병행 스코어링하기 위함
@@ -246,22 +264,10 @@ SERIES = [
     ("ESI_CYCLE",             "513Y001",  "M", "E2000",            "지수",   "경제심리지수(ESI) 순환변동치", None),
     # 521Y001: 뉴스심리지수. 일별(D)·월별(M) 모두 제공 — 고빈도 참고용으로 일별 채택.
     ("NEWS_SENTIMENT",        "521Y001",  "D", "A001",             "지수",   "뉴스심리지수(일별)", None),
-    # 512Y013(업황실적)/512Y014(업황전망) — AA/BA=BSI, 99988=전산업, C0000=제조업
-    ("BSI_ACTUAL_ALL",        "512Y013",  "M", "AA/99988",         "지수",   "업황실적BSI(전산업)", None),
-    ("BSI_ACTUAL_MFG",        "512Y013",  "M", "AA/C0000",         "지수",   "업황실적BSI(제조업)", None),
-    ("BSI_FORECAST_ALL",      "512Y014",  "M", "BA/99988",         "지수",   "업황전망BSI(전산업)", None),
-    ("BSI_FORECAST_MFG",      "512Y014",  "M", "BA/C0000",         "지수",   "업황전망BSI(제조업)", None),
     ("EXPECTED_INFLATION",    "511Y003",  "M", "FMB",              "%",    "향후1년 기대인플레이션율", None),
 
     # ── 08. 대외건전성 (v3.4 신규) ─────────────────────────────────────────
     ("FX_RESERVES",           "732Y001",  "M", "99",               "백만달러", "외환보유액 합계", None),
-    # 901Y121: 국가별 수출입금액. T002=수출, T004=수입 (관세청 무역통계 통상 구성 기준 —
-    # discover_ecos_codes.py로 stat_code/item_code 존재는 확인했으나 T002/T004의 정확한
-    # 수출/수입 매핑은 응답의 ITEM_NAME으로 재확인 권장)
-    ("EXPORT_CN_YOY",         "901Y121",  "M", "CN/T002",          "%",    "대중국 수출금액 전년비", "yoy_pct"),
-    ("IMPORT_CN_YOY",         "901Y121",  "M", "CN/T004",          "%",    "대중국 수입금액 전년비", "yoy_pct"),
-    ("EXPORT_US_YOY",         "901Y121",  "M", "US/T002",          "%",    "대미국 수출금액 전년비", "yoy_pct"),
-    ("IMPORT_US_YOY",         "901Y121",  "M", "US/T004",          "%",    "대미국 수입금액 전년비", "yoy_pct"),
 
     # ── 09. 가계부채·주택리스크 (v3.4 신규) ───────────────────────────────────
     ("HOUSEHOLD_LOANS",       "151Y002",  "M", "1111000",          "십억원",  "예금은행 가계대출", None),
@@ -270,13 +276,6 @@ SERIES = [
     ("APT_PRICE_SEOUL",       "901Y089",  "M", "200",              "지수",   "아파트실거래가지수(서울)", None),
     ("APT_PRICE_CAPITAL",     "901Y089",  "M", "300",              "지수",   "아파트실거래가지수(수도권)", None),
     ("DELINQUENCY_HOUSEHOLD", "901Y054",  "M", "MO3AB",            "%",    "가계대출 연체율", None),
-    ("DELINQUENCY_BANK_ALL",  "901Y054",  "M", "AB",               "%",    "은행 전체 연체율", None),
-    # 514Y001~003: 대출행태서베이 3종(분기), 국내은행 종합. AA/BB/CC 각각이 구체적으로
-    # 수요/공급/신용기준 중 무엇인지는 discover_ecos_codes.py --stat-code 로 ITEM_NAME
-    # 재확인 권장 — 우선 원자료를 그대로 수집만 해둔다.
-    ("LOAN_SURVEY_1",         "514Y001",  "Q", "AA",               "지수",   "대출행태서베이1(국내은행종합)", None),
-    ("LOAN_SURVEY_2",         "514Y002",  "Q", "BB",               "지수",   "대출행태서베이2(국내은행종합)", None),
-    ("LOAN_SURVEY_3",         "514Y003",  "Q", "CC",               "지수",   "대출행태서베이3(국내은행종합)", None),
 ]
 
 # ---------------------------------------------------------------------------
@@ -580,17 +579,9 @@ SERIES_NOTES = {
     "ESI_RAW":                "[참조전용] 경제심리지수 원계열. SIG13 상세문에 참고 표시만, 점수 미반영(ESI_CYCLE 채택)",
     "ESI_CYCLE":              "[SIG13 경제심리 종합] 경제심리지수 순환변동치. 추세 제거된 방향성 참고",
     "NEWS_SENTIMENT":         "[참조전용] 뉴스심리지수(일별). SIG13 상세문에 참고 표시만, 점수 미반영(고빈도 노이즈)",
-    "BSI_ACTUAL_ALL":         "[SIG13 경제심리 종합] 업황실적BSI(전산업). 100 기준, 기업 체감경기",
-    "BSI_ACTUAL_MFG":         "[참조전용] 업황실적BSI(제조업). SIG13 상세문에 참고 표시만, 점수 미반영(전산업만 채점)",
-    "BSI_FORECAST_ALL":       "[SIG13 경제심리 종합] 업황전망BSI(전산업). 익월 전망치",
-    "BSI_FORECAST_MFG":       "[참조전용] 업황전망BSI(제조업). SIG13 상세문에 참고 표시만, 점수 미반영(전산업만 채점)",
     "EXPECTED_INFLATION":     "[SIG04 기대인플레 디앵커링] 향후1년 기대인플레이션율. KOSIS 대체 없음(ECOS 단일 소스)",
     # ── 대외건전성 (v3.4 신규, 전부 [참조전용]) ──
     "FX_RESERVES":            "[참조전용] 외환보유액 합계. 대외지급능력·환율방어 여력. 스톡 지표라 임계치 미확정, 편입 보류",
-    "EXPORT_CN_YOY":          "[참조전용] 대중국 수출금액 전년비. 최대 교역국 수요 체감. T002 매핑 미검증, 편입 보류",
-    "IMPORT_CN_YOY":          "[참조전용] 대중국 수입금액 전년비. T004 매핑 미검증, 편입 보류",
-    "EXPORT_US_YOY":          "[참조전용] 대미국 수출금액 전년비. T002 매핑 미검증, 편입 보류",
-    "IMPORT_US_YOY":          "[참조전용] 대미국 수입금액 전년비. T004 매핑 미검증, 편입 보류",
     # ── 가계부채·주택리스크 (v3.4 신규) ──
     "HOUSEHOLD_LOANS":        "[참조전용] 예금은행 가계대출 잔액. 가계 레버리지 수준. 스톡 지표라 임계치 미확정, 편입 보류",
     "UNSOLD_HOUSING":         "[SIG11 주택시장] 미분양주택(전국). 공급과잉 스코어링 반영",
@@ -598,10 +589,6 @@ SERIES_NOTES = {
     "APT_PRICE_SEOUL":        "[참조전용] 아파트실거래가지수(서울)",
     "APT_PRICE_CAPITAL":      "[참조전용] 아파트실거래가지수(수도권)",
     "DELINQUENCY_HOUSEHOLD":  "[SIG07 신용 스트레스] 가계대출 연체율. 크레딧·CD 스프레드와 병행 스코어링(실현 신용스트레스)",
-    "DELINQUENCY_BANK_ALL":   "[SIG07 신용 스트레스] 은행 전체 연체율. 상동",
-    "LOAN_SURVEY_1":          "[참조전용] 대출행태서베이1(국내은행종합, 분기). 항목 정확한 의미는 재확인 필요",
-    "LOAN_SURVEY_2":          "[참조전용] 대출행태서베이2(국내은행종합, 분기). 항목 정확한 의미는 재확인 필요",
-    "LOAN_SURVEY_3":          "[참조전용] 대출행태서베이3(국내은행종합, 분기). 항목 정확한 의미는 재확인 필요",
 }
 
 
@@ -820,15 +807,17 @@ CATEGORY_MAP = {
     "04_통화·유동성":  ["M2_YOY", "BASE_MONEY", "BANK_LOANS"],
     "05_주택시장":    ["KB_HOUSE_YOY", "KB_JEONSE_YOY", "HOUSING_START"],
     "06_금융시장":    ["KOSPI", "KOSDAQ", "USD_KRW", "CD_BOK_SPREAD", "CREDIT_SPREAD"],
+    # BSI_ACTUAL_ALL/MFG, BSI_FORECAST_ALL/MFG 소거 (v3.6 — 512Y013/512Y014 실측 fetch
+    # 전부 INFO-200, item_code 추정이 틀렸던 것으로 확인)
     "07_경제심리":    ["CCSI", "ESI_RAW", "ESI_CYCLE", "NEWS_SENTIMENT",
-                      "BSI_ACTUAL_ALL", "BSI_ACTUAL_MFG", "BSI_FORECAST_ALL", "BSI_FORECAST_MFG",
                       "EXPECTED_INFLATION"],
-    "08_대외건전성":  ["FX_RESERVES", "EXPORT_CN_YOY", "IMPORT_CN_YOY",
-                      "EXPORT_US_YOY", "IMPORT_US_YOY"],
+    # EXPORT/IMPORT_CN·US_YOY 소거 (v3.6 — 901Y121 실측 fetch 전부 INFO-200)
+    "08_대외건전성":  ["FX_RESERVES"],
+    # DELINQUENCY_BANK_ALL, LOAN_SURVEY_1~3 소거 (v3.6 — 901Y054/AB, 514Y001~003
+    # 실측 fetch 전부 INFO-200)
     "09_가계부채·주택리스크": ["HOUSEHOLD_LOANS", "UNSOLD_HOUSING",
                       "APT_PRICE_NATIONAL", "APT_PRICE_SEOUL", "APT_PRICE_CAPITAL",
-                      "DELINQUENCY_HOUSEHOLD", "DELINQUENCY_BANK_ALL",
-                      "LOAN_SURVEY_1", "LOAN_SURVEY_2", "LOAN_SURVEY_3"],
+                      "DELINQUENCY_HOUSEHOLD"],
 }
 
 

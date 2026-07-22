@@ -1,6 +1,6 @@
 # ECOS + KOSIS 한국 거시경제 자동 모니터링
 
-한국은행 ECOS API (51개) + 통계청 KOSIS API (11개) = **최대 62개 시리즈**를 매일 자동 수집·분석하고 Claude.ai 프로젝트에 동기화하는 시스템입니다.
+한국은행 ECOS API (39개) + 통계청 KOSIS API (11개) = **최대 50개 시리즈**를 매일 자동 수집·분석하고 Claude.ai 프로젝트에 동기화하는 시스템입니다.
 
 > **KOSIS 재배포 대체 (v3.2~v3.5, 2026-07-22)**: GitHub Actions 환경에서 KOSIS(통계청) API가
 > 날짜별로 간헐 차단되는 문제가 확인되어(성공/실패가 일자별로 혼재), CPI·근원CPI·광공업생산·
@@ -9,15 +9,18 @@
 > 비어 있으면 자동으로 이 ECOS 값으로 대체한다 — 상세는 `data/kosis_status_log.csv`(일자별
 > 성공/실패 이력)와 `data/kosis_latest.md` 상단의 최근 수집 이력 표 참고.
 >
-> **신규지표 24종 (v3.4 추가)**: 소비자심리(CCSI)·ESI·뉴스심리지수·BSI·기대인플레이션·
-> 외환보유액·국가별 수출입·가계대출·미분양주택·아파트실거래가·연체율·대출행태서베이 —
-> 전부 `discover_ecos_codes.py`로 stat_code/item_code 실측 확인 후 추가.
+> **신규지표 24종 (v3.4 추가) → 12종 잔존 (v3.6)**: 소비자심리(CCSI)·ESI·뉴스심리지수·
+> 기대인플레이션·외환보유액·가계대출·미분양주택·아파트실거래가·연체율 — 전부
+> `discover_ecos_codes.py`로 stat_code/item_code 존재를 확인 후 추가했었으나, 그중 12종
+> (BSI 4종, 국가별 수출입 4종, 대출행태서베이 3종, 은행전체연체율)은 실제 API 키로
+> `ecos_fetch.py`를 돌려보니 [INFO-200](무효 조합) 오류로 확인되어 v3.6에서 코드베이스에서
+> 완전히 제거됨 — `discover_ecos_codes.py`의 항목 존재 확인만으로는 실제 데이터 조회
+> 가능 여부를 보장하지 못한다는 교훈.
 >
-> **8종 신호 편입 (v3.5)**: EXPECTED_INFLATION(SIG04 신규), DELINQUENCY_HOUSEHOLD/BANK_ALL
-> (SIG07 확장), UNSOLD_HOUSING·APT_PRICE_NATIONAL(SIG11 확장), CCSI·ESI_CYCLE·
-> BSI_ACTUAL_ALL·BSI_FORECAST_ALL(SIG13 신규)는 검증된 의미의 지표만 우선 판정 수식에
-> 편입했고, 나머지 16종(대외건전성 전체·LOAN_SURVEY 등 의미/매핑 미검증분, FX_RESERVES·
-> HOUSEHOLD_LOANS 등 스톡 지표)은 **[참조전용]**으로 유지.
+> **6종 신호 편입 (v3.5~v3.6)**: EXPECTED_INFLATION(SIG04 신규), DELINQUENCY_HOUSEHOLD
+> (SIG07 확장), UNSOLD_HOUSING·APT_PRICE_NATIONAL(SIG11 확장), CCSI·ESI_CYCLE(SIG13 신규)는
+> 검증된 의미의 지표만 판정 수식에 편입. 나머지 6종(FX_RESERVES·HOUSEHOLD_LOANS 등 스톡
+> 지표, ESI_RAW·NEWS_SENTIMENT 등 고빈도/중복 서브지표)은 **[참조전용]**으로 유지.
 
 ---
 
@@ -25,14 +28,14 @@
 
 ```
 [ECOS API]          [KOSIS API]
- 51개 시리즈          11개 지표
+ 39개 시리즈          11개 지표
  ecos_fetch.py       kosis_fetch.py
       │                   │
       └───────┬───────────┘
               ▼
        merge_macro.py
     data/macro_latest.csv
-    (최대 62개 통합, source 컬럼)
+    (최대 50개 통합, source 컬럼)
               │
        ┌──────┴──────┐
        ▼             ▼
@@ -51,9 +54,9 @@
 
 ---
 
-## 지표 목록 (최대 62개)
+## 지표 목록 (최대 50개)
 
-### ECOS 51개 (한국은행 원천)
+### ECOS 39개 (한국은행 원천)
 
 **핵심 지표 + KOSIS 재배포 대체 (27개)**
 
@@ -89,7 +92,7 @@
 
 > **KOSPI**: ECOS 802Y001 일별 수집. 레짐 성장 점수에서 제외, SIG12에서만 사용.
 
-**신규지표 24개 (v3.4 추가, 8종은 v3.5에서 신호 편입)**
+**신규지표 12개 (v3.4 추가, v3.6에서 무효 12종 제거 후 잔존, 6종은 신호 편입)**
 
 | 카테고리 | series_id | stat_code/item_code | 신호 사용 |
 |---|---|---|---|
@@ -97,24 +100,22 @@
 | 07_경제심리 | ESI_CYCLE | 513Y001/E2000 | SIG13 |
 | 07_경제심리 | ESI_RAW | 513Y001/E1000 | 참조전용 |
 | 07_경제심리 | NEWS_SENTIMENT | 521Y001/A001 (일별) | 참조전용 |
-| 07_경제심리 | BSI_ACTUAL_ALL | 512Y013/AA·99988 | SIG13 |
-| 07_경제심리 | BSI_ACTUAL_MFG | 512Y013/AA·C0000 | 참조전용 |
-| 07_경제심리 | BSI_FORECAST_ALL | 512Y014/BA·99988 | SIG13 |
-| 07_경제심리 | BSI_FORECAST_MFG | 512Y014/BA·C0000 | 참조전용 |
 | 07_경제심리 | EXPECTED_INFLATION | 511Y003/FMB | SIG04 |
 | 08_대외건전성 | FX_RESERVES | 732Y001/99 | 참조전용 |
-| 08_대외건전성 | EXPORT_CN_YOY, IMPORT_CN_YOY | 901Y121/CN·T002, CN·T004 | 참조전용 |
-| 08_대외건전성 | EXPORT_US_YOY, IMPORT_US_YOY | 901Y121/US·T002, US·T004 | 참조전용 |
 | 09_가계부채·주택리스크 | HOUSEHOLD_LOANS | 151Y002/1111000 | 참조전용 |
 | 09_가계부채·주택리스크 | UNSOLD_HOUSING | 901Y074/I410A | SIG11 |
 | 09_가계부채·주택리스크 | APT_PRICE_NATIONAL | 901Y089/100 | SIG11 |
 | 09_가계부채·주택리스크 | APT_PRICE_SEOUL, APT_PRICE_CAPITAL | 901Y089/200, 300 | 참조전용 |
-| 09_가계부채·주택리스크 | DELINQUENCY_HOUSEHOLD, DELINQUENCY_BANK_ALL | 901Y054/MO3AB, AB | SIG07 |
-| 09_가계부채·주택리스크 | LOAN_SURVEY_1/2/3 | 514Y001~003/AA, BB, CC | 참조전용 |
+| 09_가계부채·주택리스크 | DELINQUENCY_HOUSEHOLD | 901Y054/MO3AB | SIG07 |
 
-> 지표별 해석 노트는 `ecos_fetch.py`의 `SERIES_NOTES`에 있음. `EXPORT/IMPORT_CN·US_YOY`의
-> T002/T004 수출입 매핑, `LOAN_SURVEY_1~3`의 AA/BB/CC 항목 의미는 관행적 추정이며 ITEM_NAME
-> 재확인 권장(`discover_ecos_codes.py --stat-code <code>`).
+> 지표별 해석 노트는 `ecos_fetch.py`의 `SERIES_NOTES`에 있음.
+>
+> **v3.6에서 제거된 12종** (전부 `ecos_fetch.py` 실측 fetch에서 [INFO-200] 확인,
+> `discover_ecos_codes.py`의 항목 존재 확인만으로는 부족했음): `BSI_ACTUAL_ALL`,
+> `BSI_ACTUAL_MFG`(512Y013), `BSI_FORECAST_ALL`, `BSI_FORECAST_MFG`(512Y014),
+> `EXPORT_CN_YOY`, `IMPORT_CN_YOY`, `EXPORT_US_YOY`, `IMPORT_US_YOY`(901Y121),
+> `DELINQUENCY_BANK_ALL`(901Y054/AB), `LOAN_SURVEY_1/2/3`(514Y001~003). 같은 표
+> (901Y054)의 `DELINQUENCY_HOUSEHOLD`(MO3AB)는 정상 fetch되어 그대로 유지.
 
 ### KOSIS 11개 (통계청 원천)
 
@@ -147,16 +148,19 @@
 | SIG04 | 기대인플레 디앵커링 (v3.5) | EXPECTED_INFLATION (KOSIS 대체 없음) | % |
 | SIG05 | 노동시장 종합 | KOSIS_UNEMP_RATE, KOSIS_EMP_CHANGE, KOSIS_EMP_RATE | % |
 | SIG06 | 내수·소비 | KOSIS_RETAIL_YOY, KOSIS_SERVICE_PROD_YOY(대체: SERVICE_PROD_YOY) | % YoY |
-| SIG07 | 신용 스트레스 | CREDIT_SPREAD, CD_BOK_SPREAD, DELINQUENCY_HOUSEHOLD, DELINQUENCY_BANK_ALL (v3.5 확장) | %p / % |
+| SIG07 | 신용 스트레스 | CREDIT_SPREAD, CD_BOK_SPREAD, DELINQUENCY_HOUSEHOLD (v3.5 확장, v3.6 DELINQUENCY_BANK_ALL 제거) | %p / % |
 | SIG08 | 경기 사이클 | KOSIS_CLI_COINCIDENT(대체: CLI_COINCIDENT), KOSIS_CLI_LEADING(대체: CLI_LEADING) | 지수 |
 | SIG09 | 산업생산 모멘텀 | KOSIS_INDPRO_YOY(대체: INDPRO_YOY) | % YoY |
 | SIG11 | 주택시장 | KB_HOUSE_YOY, KB_JEONSE_YOY, HOUSING_START, UNSOLD_HOUSING, APT_PRICE_NATIONAL (v3.5 확장) | % / 지수 / 호 |
 | SIG12 | KOSPI 레짐 | KOSPI | pt |
-| SIG13 | 경제심리 종합 (v3.5) | CCSI, ESI_CYCLE, BSI_ACTUAL_ALL, BSI_FORECAST_ALL | 지수 |
+| SIG13 | 경제심리 종합 (v3.5, v3.6 BSI 제거) | CCSI, ESI_CYCLE | 지수 |
 
-> **미구현**: SIG10 수출 모멘텀(KOSIS 관세청 API 미연동 — `EXPORT_CN_YOY`/`EXPORT_US_YOY` 참조전용 원자료는 있음).
+> **미구현**: SIG10 수출 모멘텀(KOSIS 관세청 API 미연동, ECOS 901Y121 시도분도 v3.6에서
+> INFO-200 확인 후 제거 — 대체 원자료 없음).
 > SIG04·SIG07·SIG11·SIG13의 신규 임계치는 전부 제안값(확정 전 검토 권장) — 한국 실측
 > 위기구간 데이터로 검증되지 않음. 상세 근거는 각 신호 함수 docstring/주석 참고.
+> SIG07·SIG13은 v3.6에서 무효 코드(BSI·DELINQUENCY_BANK_ALL) 제거로 구성요소가
+> 각각 4→3개, 4→2개로 줄었음 — `_coverage_note()`가 자동으로 반영된 값 개수를 표시.
 
 ---
 
@@ -184,7 +188,7 @@
 
 ```
 ecos-macro-review/
-├── ecos_fetch.py                  ECOS 51개 시리즈 수집 (6종은 KOSIS 재배포 대체, 24종 신규 — 8종은 신호 편입, 16종 참조전용)
+├── ecos_fetch.py                  ECOS 39개 시리즈 수집 (6종은 KOSIS 재배포 대체, 12종 신규 — 6종은 신호 편입, 6종 참조전용)
 ├── kosis_fetch.py                 KOSIS 11개 지표 수집 + 일자별 수집 이력 로그
 ├── discover_ecos_codes.py         ECOS stat_code/item_code 실측 조회 헬퍼 (신규 시리즈 추가 전 검증용)
 ├── scripts/
@@ -193,10 +197,10 @@ ecos-macro-review/
 │   ├── ecos_signals.py            12개 신호 계산 (KOSIS 우선, ECOS 대체)
 │   └── ecos_regime.py             레짐 분류 + 커버리지 신뢰도 표시 (KOSIS 우선, ECOS 대체)
 ├── data/
-│   ├── ecos_latest.csv / .md      ECOS 51개 원천 (07_경제심리·08_대외건전성·09_가계부채·주택리스크 포함)
+│   ├── ecos_latest.csv / .md      ECOS 39개 원천 (07_경제심리·08_대외건전성·09_가계부채·주택리스크 포함)
 │   ├── kosis_latest.csv / .md     KOSIS 11개 원천 + 최근 수집 이력 표
 │   ├── kosis_status_log.csv       KOSIS 일자별 성공/실패 이력 (최근 30건)
-│   ├── macro_latest.csv           통합 최대 62개 + source 컬럼
+│   ├── macro_latest.csv           통합 최대 50개 + source 컬럼
 │   ├── ecos_signals.md            신호 대시보드
 │   └── ecos_regime.md             레짐 분류 보고서 (커버리지 컬럼 포함)
 ├── .github/workflows/
