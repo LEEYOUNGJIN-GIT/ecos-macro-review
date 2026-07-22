@@ -15,6 +15,14 @@ KOSIS API 키 발급: https://kosis.kr/openapi/
   - 검증 실패 시 해당 지표는 None 처리, 파이프라인 계속 진행.
 
 수정 이력:
+  v1.5 (2026-07-22): 일자별 수집 이력 로그 추가
+  - data/kosis_status_log.csv: 실행일자·성공/전체 지표 수·상태를 누적 기록(최근 30건)
+  - kosis_latest.md 상단에 최근 14일 수집 이력 표 렌더링
+  - GitHub Actions 환경에서 KOSIS API가 날짜별로 성공/실패가 혼재되는 문제
+    (통계청 API의 간헐적 접속 차단 추정)를 사후에 추적할 수 있도록 함
+  - 이 실행에서 CPI/근원CPI/광공업생산이 KOSIS 차단으로 빠지더라도
+    ecos_fetch.py 쪽 재배포 대체(CPI_YOY, INDPRO_YOY)가 신호·레짐 계산을 커버함
+
   v1.1 (2026-05-27): API 파라미터 수정 및 JSON 파싱 수정
   - KOSIS 응답이 비표준 JS 표기({key:"val"})이므로 resp.json() 대신 regex fix 후 json.loads 사용
   - KOSIS_SERIES 튜플에 c1_filter(11번째) 추가: 동일 tblId 내 C1 코드로 지표 구분 시 사용
@@ -561,6 +569,66 @@ def drop_failed(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# 일자별 수집 성공/실패 이력 (KOSIS가 GitHub Actions에서 간헐 차단되는 문제 추적용)
+# ---------------------------------------------------------------------------
+STATUS_LOG_CSV = DATA_DIR / "kosis_status_log.csv"
+STATUS_LOG_MAX_ROWS = 30
+
+
+def log_status(success_count: int, total_count: int) -> None:
+    """실행일자 + 성공/전체 지표 수를 data/kosis_status_log.csv 에 누적 기록한다.
+
+    같은 워크플로가 어떤 날은 성공하고 어떤 날은 전량 실패하는 패턴이 있어
+    (통계청 KOSIS API의 GitHub Actions IP 간헐 차단으로 추정), 매 실행 결과를
+    날짜별로 남겨 두면 kosis_latest.md 의 공백이 "원래 결측"인지 "그날 접속
+    차단"인지 사후 판단할 수 있다.
+    """
+    today_kst = datetime.now(_KST).strftime("%Y-%m-%d")
+    if success_count == 0:
+        status = "❌ 전량 실패"
+    elif success_count == total_count:
+        status = "✅ 정상"
+    else:
+        status = "⚠️ 부분 실패"
+
+    row = pd.DataFrame([{
+        "date":    today_kst,
+        "success": success_count,
+        "total":   total_count,
+        "status":  status,
+    }])
+
+    if STATUS_LOG_CSV.exists():
+        log_df = pd.read_csv(STATUS_LOG_CSV, encoding="utf-8-sig")
+        log_df = log_df[log_df["date"] != today_kst]  # 같은 날 재실행 시 최신 결과로 교체
+        log_df = pd.concat([log_df, row], ignore_index=True)
+    else:
+        log_df = row
+
+    log_df = log_df.tail(STATUS_LOG_MAX_ROWS)
+    log_df.to_csv(STATUS_LOG_CSV, index=False, encoding="utf-8-sig")
+    print(f"  Saved: {STATUS_LOG_CSV}  ({today_kst}: {success_count}/{total_count}, {status})")
+
+
+def _status_log_md_lines() -> list[str]:
+    """kosis_latest.md 상단에 넣을 최근 수집 이력 표."""
+    if not STATUS_LOG_CSV.exists():
+        return []
+    log_df = pd.read_csv(STATUS_LOG_CSV, encoding="utf-8-sig").tail(14)
+    if log_df.empty:
+        return []
+    lines = [
+        "> **최근 수집 이력** (일자별 성공/실패 — KOSIS API의 GitHub Actions 간헐 차단 추적용)",
+        ">",
+        "> | 일자 | 성공/전체 | 상태 |",
+        "> |------|---------|------|",
+    ]
+    for _, r in log_df.iloc[::-1].iterrows():
+        lines.append(f"> | {r['date']} | {int(r['success'])}/{int(r['total'])} | {r['status']} |")
+    return lines
+
+
+# ---------------------------------------------------------------------------
 # 포맷 헬퍼
 # ---------------------------------------------------------------------------
 def _fmt_val(v: float | None) -> str:
@@ -623,6 +691,10 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
         "> **출처**: 통계청(orgId=101) - KOSIS Open API",
         "> **[참조전용]**: 신호/레짐 점수 산정에 미사용, 분석 참고 전용",
         "> **KOSIS_CORE_CPI_YOY**: 통계청 농산물·석유류제외(DT_1J22007, C1=QB)",
+        "> **CPI·근원CPI·광공업생산**: KOSIS 차단 시 ecos_signals.md/ecos_regime.md 는 "
+        "ECOS 재배포(CPI_YOY, INDPRO_YOY)로 자동 대체됨 — 이 표가 비어 있어도 신호·레짐은 정상 산출 가능",
+        "",
+        *_status_log_md_lines(),
         "",
         "---",
         "",
@@ -717,15 +789,18 @@ def main() -> None:
         print("        환경변수로 설정해주세요.")
         sys.exit(1)
 
-    df = collect_all()
-    df = drop_failed(df)
+    df_all = collect_all()
+    total_count   = len(df_all)
+    success_count = int(df_all["value"].notna().sum())
+    log_status(success_count, total_count)
+
+    df = drop_failed(df_all)
 
     fetched_at = datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")
     save_csv(df)
     save_md(df, fetched_at)
 
-    valid_count = df["value"].notna().sum()
-    print(f"\n완료: {valid_count}/{len(df)} 지표 수집 성공")
+    print(f"\n완료: {success_count}/{total_count} 지표 수집 성공")
     print("=" * 60)
 
 

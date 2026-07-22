@@ -1,6 +1,13 @@
 # ECOS + KOSIS 한국 거시경제 자동 모니터링
 
-한국은행 ECOS API (21개) + 통계청 KOSIS API (11개) = **총 32개 지표**를 매일 자동 수집·분석하고 Claude.ai 프로젝트에 동기화하는 시스템입니다.
+한국은행 ECOS API (23개) + 통계청 KOSIS API (11개) = **최대 34개 시리즈**를 매일 자동 수집·분석하고 Claude.ai 프로젝트에 동기화하는 시스템입니다.
+
+> **KOSIS 재배포 대체 (v3.2, 2026-07-22)**: GitHub Actions 환경에서 KOSIS(통계청) API가
+> 날짜별로 간헐 차단되는 문제가 확인되어(성공/실패가 일자별로 혼재), CPI·광공업생산은
+> ECOS 쪽에도 동일 지표를 병행 수집한다(`CPI_YOY`, `INDPRO_YOY`). `ecos_signals.py`/
+> `ecos_regime.py`는 KOSIS 값을 우선 사용하고, 그날 KOSIS가 비어 있으면 자동으로 이 ECOS
+> 값으로 대체한다 — 상세는 `data/kosis_status_log.csv`(일자별 성공/실패 이력)와
+> `data/kosis_latest.md` 상단의 최근 수집 이력 표 참고.
 
 ---
 
@@ -8,19 +15,21 @@
 
 ```
 [ECOS API]          [KOSIS API]
- 21개 지표           11개 지표
+ 23개 시리즈          11개 지표
  ecos_fetch.py       kosis_fetch.py
       │                   │
       └───────┬───────────┘
               ▼
        merge_macro.py
     data/macro_latest.csv
-    (32개 통합, source 컬럼)
+    (최대 34개 통합, source 컬럼)
               │
        ┌──────┴──────┐
        ▼             ▼
  ecos_signals.py  ecos_regime.py
   10개 신호 계산    레짐 분류
+   (KOSIS 우선,      (KOSIS 우선,
+    ECOS 대체)        ECOS 대체)
        │             │
        ▼             ▼
  ecos_signals.md  ecos_regime.md
@@ -32,9 +41,9 @@
 
 ---
 
-## 지표 목록 (32개)
+## 지표 목록 (최대 34개)
 
-### ECOS 21개 (한국은행 원천)
+### ECOS 23개 (한국은행 원천)
 
 | series_id | 지표명 | 단위 | 신호/레짐 사용 |
 |-----------|--------|------|-------------|
@@ -44,10 +53,12 @@
 | CD_91D | CD 91일 | % | SIG07 파생 |
 | CORP_BOND_AA_MINUS | 회사채 AA- | % | 팩트 전용 |
 | CORP_BOND_BBB_MINUS | 회사채 BBB- | % | SIG07 파생 |
+| CPI_YOY | 소비자물가지수 전년비 (901Y009/0) | % YoY | **[재배포 대체]** KOSIS_CPI_YOY 차단 시 SIG03·레짐인플레 사용 |
 | PPI_YOY | 생산자물가 전년비 | % YoY | SIG03, 레짐인플레(w=1.5) |
 | IMPORT_PRICE_YOY | 수입물가 전년비 | % YoY | 레짐인플레(w=1.0) |
 | GDP_GROWTH_QOQ | 실질GDP 전기비 | % | 팩트 전용 |
 | GDP_GROWTH_YOY | 실질GDP 전년비 | % | 레짐성장(w=2.0) |
+| INDPRO_YOY | 광공업생산지수 전년비 (401Y015/*AA/C) | % YoY | **[재배포 대체]** KOSIS_INDPRO_YOY 차단 시 SIG09·레짐성장 사용 |
 | M2_YOY | M2 광의통화 전년비 | % | 팩트 전용 |
 | BASE_MONEY | 본원통화 잔액 | 십억원 | 팩트 전용 |
 | BANK_LOANS | 예금은행 총대출금 | 십억원 | 팩트 전용 |
@@ -88,13 +99,13 @@
 | ID | 신호명 | 입력 지표 | 레인지 |
 |----|--------|---------|-------|
 | SIG01 | 장단기 금리 스프레드 | GOV_BOND_10Y - BOK_BASE_RATE | %p |
-| SIG02 | 실질금리 갭 | BOK_BASE_RATE - KOSIS_CORE_CPI_YOY | %p |
-| SIG03 | 인플레이션 레짐 | KOSIS_CPI_YOY, KOSIS_CORE_CPI_YOY, PPI_YOY | % 복합 |
+| SIG02 | 실질금리 갭 | BOK_BASE_RATE - KOSIS_CORE_CPI_YOY (ECOS 대체 없음, KOSIS 차단 시 N/A) | %p |
+| SIG03 | 인플레이션 레짐 | KOSIS_CPI_YOY(대체: CPI_YOY), KOSIS_CORE_CPI_YOY, PPI_YOY | % 복합 |
 | SIG05 | 노동시장 종합 | KOSIS_UNEMP_RATE, KOSIS_EMP_CHANGE, KOSIS_EMP_RATE | % |
 | SIG06 | 내수·소비 | KOSIS_RETAIL_YOY, KOSIS_SERVICE_PROD_YOY | % YoY |
 | SIG07 | 신용 스트레스 | CREDIT_SPREAD, CD_BOK_SPREAD | %p |
 | SIG08 | 경기 사이클 | KOSIS_CLI_COINCIDENT, KOSIS_CLI_LEADING | 지수 |
-| SIG09 | 산업생산 모멘텀 | KOSIS_INDPRO_YOY | % YoY |
+| SIG09 | 산업생산 모멘텀 | KOSIS_INDPRO_YOY(대체: INDPRO_YOY) | % YoY |
 | SIG11 | 주택시장 | KB_HOUSE_YOY, KB_JEONSE_YOY, HOUSING_START | % / 지수 |
 | SIG12 | KOSPI 레짐 | KOSPI | pt |
 
@@ -113,9 +124,9 @@
 | ⚠️ Stagflation | 약함(≤5) | 높음(>5) |
 | ❄️ Recession Risk | 약함(≤5) | 낮음(≤5) |
 
-**성장 6요소**: GDP_GROWTH_YOY(w=2.0), KOSIS_EMP_RATE(w=1.0), KOSIS_CLI_COINCIDENT(w=1.5), KOSIS_CLI_LEADING(w=1.5), KOSIS_INDPRO_YOY(w=1.0), KOSIS_RETAIL_YOY(w=1.0)
+**성장 6요소**: GDP_GROWTH_YOY(w=2.0), KOSIS_EMP_RATE(w=1.0), KOSIS_CLI_COINCIDENT(w=1.5), KOSIS_CLI_LEADING(w=1.5), KOSIS_INDPRO_YOY(w=1.0, 대체: INDPRO_YOY), KOSIS_RETAIL_YOY(w=1.0)
 
-**인플레 4요소**: KOSIS_CPI_YOY(w=2.0), KOSIS_CORE_CPI_YOY(w=2.0), PPI_YOY(w=1.5), IMPORT_PRICE_YOY(w=1.0, ±15% winsorize)
+**인플레 4요소**: KOSIS_CPI_YOY(w=2.0, 대체: CPI_YOY), KOSIS_CORE_CPI_YOY(w=2.0, 대체 없음), PPI_YOY(w=1.5), IMPORT_PRICE_YOY(w=1.0, ±15% winsorize)
 
 ---
 
@@ -123,16 +134,17 @@
 
 ```
 ecos-macro-review/
-├── ecos_fetch.py                  ECOS 21개 지표 수집
-├── kosis_fetch.py                 KOSIS 11개 지표 수집
+├── ecos_fetch.py                  ECOS 23개 시리즈 수집 (CPI_YOY·INDPRO_YOY는 KOSIS 재배포 대체)
+├── kosis_fetch.py                 KOSIS 11개 지표 수집 + 일자별 수집 이력 로그
 ├── scripts/
 │   ├── merge_macro.py             ECOS+KOSIS 병합 → macro_latest.csv
-│   ├── ecos_signals.py            10개 신호 계산
-│   └── ecos_regime.py             레짐 분류
+│   ├── ecos_signals.py            10개 신호 계산 (KOSIS 우선, ECOS 대체)
+│   └── ecos_regime.py             레짐 분류 (KOSIS 우선, ECOS 대체)
 ├── data/
-│   ├── ecos_latest.csv / .md      ECOS 21개 원천
-│   ├── kosis_latest.csv / .md     KOSIS 11개 원천
-│   ├── macro_latest.csv           통합 32개 + source 컬럼
+│   ├── ecos_latest.csv / .md      ECOS 23개 원천
+│   ├── kosis_latest.csv / .md     KOSIS 11개 원천 + 최근 수집 이력 표
+│   ├── kosis_status_log.csv       KOSIS 일자별 성공/실패 이력 (최근 30건)
+│   ├── macro_latest.csv           통합 최대 34개 + source 컬럼
 │   ├── ecos_signals.md            신호 대시보드
 │   └── ecos_regime.md             레짐 분류 보고서
 ├── .github/workflows/

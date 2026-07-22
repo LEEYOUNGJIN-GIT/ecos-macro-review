@@ -1,9 +1,15 @@
 """
 ecos_fetch.py
-한국은행 ECOS API에서 21개 거시경제 지표를 수집하고
+한국은행 ECOS API에서 23개 거시경제 지표를 수집하고
 data/ecos_latest.csv 및 data/ecos_latest.md 를 생성합니다.
 
-KOSIS 이관 완료 시리즈 (v3.0 - kosis_fetch.py 로 이전):
+KOSIS 재배포 대체 소스로 복원 (v3.2 - GH Actions에서 KOSIS(통계청) 접속이 날짜별로
+간헐 차단되는 문제 대응. kosis_fetch.py는 그대로 유지, ECOS는 병행 수집 후
+ecos_signals.py/ecos_regime.py 에서 KOSIS 우선·ECOS 대체 순으로 사용):
+  CPI_YOY       -> 901Y009/0 (근원CPI는 ECOS 재배포 코드 미검증 — KOSIS_CORE_CPI_YOY 전용 유지)
+  INDPRO_YOY    -> 401Y015/*AA/C
+
+KOSIS 이관 완료 시리즈 (v3.0 - kosis_fetch.py 로 이전, 위 2종은 v3.2에서 ECOS 측 재수집 재개):
   CPI_YOY, CORE_CPI_YOY         -> KOSIS_CPI_YOY, KOSIS_CORE_CPI_YOY
   CLI_COINCIDENT, CLI_LEADING   -> KOSIS_CLI_COINCIDENT, KOSIS_CLI_LEADING
   INDPRO_YOY                    -> KOSIS_INDPRO_YOY (DT_1F02011)
@@ -34,6 +40,15 @@ KOSIS 이관 완료 시리즈 (v3.0 - kosis_fetch.py 로 이전):
   - IMPORT_YOY ≥30% 시 팩트테이블에 "기저효과" 경고 플래그 자동 표시
   - GDP 성장 점수 정규화 범위 조정: (-3.0, 6.0) -> (-2.0, 8.0) in ecos_regime.py
     (2026Q1 실질GDP YoY 6.42%가 상한 6.0 초과로 매번 클리핑되던 문제 해소)
+
+  v3.2 (2026-07-22): CPI_YOY·INDPRO_YOY ECOS 재배포 대체 소스 복원
+  - GitHub Actions 실행 환경에서 KOSIS(통계청) API가 날짜별로 간헐 차단되어
+    kosis_latest.md 관련 항목이 종종 공백으로 나오는 문제 확인
+    (같은 워크플로가 어떤 날은 성공, 어떤 날은 연결 실패 — 지리적/네트워크 차단 추정)
+  - CPI_YOY(901Y009/0), INDPRO_YOY(401Y015/*AA/C) 재추가: 둘 다 KOSIS 이관(v3.0) 이전에
+    실측 검증됐던 코드를 그대로 복원한 것으로, 신규 추측 코드 아님
+  - 근원CPI는 ECOS 재배포 후보를 아직 실측 검증하지 못해(StatisticItemList 조회 필요)
+    KOSIS_CORE_CPI_YOY 단일 소스로 유지 — SIG02/SIG03 상세에 그 한계를 명시
 
   v3.1 (2026-05-27): PPI 통계표 코드 수정 (API 실측 검증)
   - PPI_YOY: 901Y009/0 → 404Y014/*AA
@@ -117,20 +132,27 @@ SERIES = [
     ("CORP_BOND_BBB_MINUS", "721Y001", "M", "7030000", "%",    "회사채 BBB-",              None),  # 4050000 -> 7030000
 
     # ── 02. 물가·인플레 ────────────────────────────────────────────────────
-    # CPI_YOY, CORE_CPI_YOY -> KOSIS 이관 (kosis_fetch.py 참조)
+    # CORE_CPI_YOY(근원CPI)는 KOSIS 전용 유지 (ECOS 재배포 코드 미검증 — StatisticItemList
+    # 조회로 확인 후에만 추가할 것. 근거 없이 하드코딩 금지)
+    # 901Y009/0: ECOS '소비자물가지수' 총지수 — v3.1에서 KOSIS CPI(index 119.37·YoY 2.57%)와
+    # 동일값 실측 검증됨. KOSIS_CPI_YOY가 GitHub Actions에서 간헐 차단되므로 CPI_YOY(ECOS)를
+    # 재배포 대체 소스로 복원 (v3.2). ecos_signals.py/ecos_regime.py는 KOSIS 우선, 실패 시 이 값 사용.
+    ("CPI_YOY",              "901Y009", "M", "0",       "%",    "소비자물가지수 전년비(ECOS 재배포)", "yoy_pct"),
     # 404Y014/*AA: 생산자물가지수(기본분류) 총지수 (2020=100) — API 검증 ✅
-    # ※ 구 901Y009/0은 ECOS '소비자물가지수' 테이블(CPI 중복) → 제거
     ("PPI_YOY",             "404Y014", "M", "*AA",     "%",    "생산자물가 전년비",        "yoy_pct"),
     # 403Y005: 수출입물가지수(2020=100), B=수입품물가지수 -> 지수에서 전년비 계산
     # (구 901Y013/A는 수입금액 절대값으로 물가지수 아님 -> 403Y005/B로 교체)
     ("IMPORT_PRICE_YOY",    "403Y005", "M", "B",       "%",    "수입물가 전년비",          "yoy_pct"),
 
     # ── 03. GDP ───────────────────────────────────────────────────────────
-    # CLI_COINCIDENT, CLI_LEADING, INDPRO_YOY -> KOSIS 이관 (kosis_fetch.py 참조)
+    # CLI_COINCIDENT, CLI_LEADING -> KOSIS 전용 유지 (ECOS 직접 대체 없음)
     # BSI_ALL (512Y014/99988) 소거: 최신 데이터 2023-05, 25개월 지연 -> API 미업데이트
     # 200Y104: 실질GDP 계절조정(1118=합계) -> QoQ/YoY 계산
     ("GDP_GROWTH_QOQ",      "200Y104", "Q", "1118",    "%",    "실질GDP 전기비",           "qoq_pct"),  # 10101 오류 -> 1118+계산
     ("GDP_GROWTH_YOY",      "200Y104", "Q", "1118",    "%",    "실질GDP 전년비",           "yoy_pct"),  # 10111 오류 -> 1118+계산
+    # 401Y015/*AA/C: 광공업생산지수 원계열(2020=100) -> YoY. v2.1에서 API 실측 검증 후
+    # v3.0에서 KOSIS_INDPRO_YOY로 이관됐던 시리즈. KOSIS 간헐 차단 대응으로 재배포 대체 소스 복원(v3.2).
+    ("INDPRO_YOY",          "401Y015", "M", "*AA/C",   "%",    "광공업생산지수 전년비(ECOS 재배포)", "yoy_pct"),
 
     # 04_노동시장 -> KOSIS 이관 (UNEMPLOYMENT_RATE, EMPLOYMENT_CHANGE,
     #   LABOR_PARTICIPATION, EMPLOYMENT_RATE -> kosis_fetch.py 참조)
@@ -439,11 +461,13 @@ SERIES_NOTES = {
     "CORP_BOND_AA_MINUS":  "[참조전용] 우량 기업 조달비용. 국채 대비 스프레드 확대 시 신용 위험 상승",
     "CORP_BOND_BBB_MINUS": "투기등급 기업 조달비용. CREDIT_SPREAD와 함께 신용 리스크 점검",
     # ── 물가 (ECOS 잔류분) ──
+    "CPI_YOY":             "[재배포 대체] KOSIS_CPI_YOY 실패 시 대체 소스. 근원CPI는 KOSIS 전용(ECOS 미검증)",
     "PPI_YOY":             "기업 비용 압박 선행지표. CPI 3~6개월 선행 가능성",
     "IMPORT_PRICE_YOY":    "수입 비용 충격. 환율·원자재 복합 영향. 급등 시 소비자물가 전가 경계",
     # ── GDP ──
     "GDP_GROWTH_QOQ":      "[참조전용] 전분기비 성장률. 2분기 연속 음수 시 기술적 침체",
     "GDP_GROWTH_YOY":      "전년비 성장률. 잠재성장률(약 2%) 대비 위치 파악",
+    "INDPRO_YOY":          "[재배포 대체] KOSIS_INDPRO_YOY 실패 시 대체 소스. 광공업생산 모멘텀(SIG09)",
     # ── 통화·유동성 ──
     "M2_YOY":              "[참조전용] 광의통화 전년비. 음수 시 디플레 우려, 10% 이상 시 과잉 유동성",
     "BASE_MONEY":          "[참조전용] 본원통화 잔액. 통화 공급 기초. YoY 감소 시 긴축 기조",
@@ -663,14 +687,14 @@ def drop_failed(df: pd.DataFrame) -> pd.DataFrame:
 # 출력 파일 생성
 # ---------------------------------------------------------------------------
 CATEGORY_MAP = {
-    # 21개 ECOS 잔류 지표 - 물가/경기/고용/수출입 -> kosis_fetch.py 이관
+    # 23개 ECOS 잔류 지표 - 물가/경기/고용/수출입 -> kosis_fetch.py 이관
     "01_금리·채권":   ["BOK_BASE_RATE", "GOV_BOND_3Y", "GOV_BOND_10Y", "CD_91D",
                       "CORP_BOND_AA_MINUS", "CORP_BOND_BBB_MINUS"],
-    "02_물가":        ["PPI_YOY", "IMPORT_PRICE_YOY"],
-    # CPI_YOY, CORE_CPI_YOY -> KOSIS 이관
-    # CLI_COINCIDENT, CLI_LEADING, INDPRO_YOY -> KOSIS 이관
+    "02_물가":        ["CPI_YOY", "PPI_YOY", "IMPORT_PRICE_YOY"],
+    # CORE_CPI_YOY -> KOSIS 전용 (ECOS 재배포 코드 미검증)
+    # CLI_COINCIDENT, CLI_LEADING -> KOSIS 전용 (ECOS 직접 대체 없음)
     # BSI_ALL 소거 (2023-05 이후 업데이트 없음)
-    "03_GDP":         ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY"],
+    "03_GDP":         ["GDP_GROWTH_QOQ", "GDP_GROWTH_YOY", "INDPRO_YOY"],
     # 04_노동시장 -> KOSIS 이관 (UNEMPLOYMENT_RATE 등 4개)
     # 05_수출입 -> KOSIS 이관 (EXPORT_YOY, IMPORT_YOY)
     # CSI/RETAIL_SALES_YOY 소거 (API 데이터 부재)

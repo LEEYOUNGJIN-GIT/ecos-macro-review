@@ -3,6 +3,11 @@ scripts/ecos_regime.py
 data/macro_latest.csv 를 읽어 성장·인플레이션 점수를 계산하고
 2×2 매크로 레짐을 분류한 뒤 data/ecos_regime.md 를 생성합니다.
 
+v3.3 (2026-07-22): CPI·광공업생산 KOSIS 차단 대응 ECOS 재배포 대체(g_fallback)
+  - 인플레 1번째(CPI), 성장 5번째(광공업생산) 요소가 KOSIS 미수집 시
+    ECOS CPI_YOY/INDPRO_YOY 로 자동 대체 (ecos_signals.py와 동일 로직)
+  - 근원CPI는 검증된 ECOS 대체 코드가 없어 KOSIS 단일 소스 유지
+
 v3.2 (2026-05-27): GDP·신선도 가중치, KOSPI 주석 정정
   - GDP_GROWTH_YOY 가중치 2.0→0.5 (분기 GDP, Q1 단일값)
   - 기준일 2개월+ 지연 지표 가중치 ×0.7
@@ -113,6 +118,18 @@ def gdate(data: dict, series_id: str) -> str:
 
 def raw_date(data: dict, series_id: str) -> str:
     return str(data.get(f"{series_id}__date", "N/A"))
+
+
+def g_fallback(data: dict, primary: str, fallback: str) -> tuple[float | None, str]:
+    """KOSIS(primary)가 GitHub Actions에서 간헐 차단되는 문제 대응.
+    primary 값이 없으면 fallback(ECOS 재배포)을 사용한다. (value, 실제 사용된 series_id) 반환."""
+    v = g(data, primary)
+    if v is not None:
+        return v, primary
+    v = g(data, fallback)
+    if v is not None:
+        return v, fallback
+    return None, primary
 
 
 def months_lag(date_str: str) -> int | None:
@@ -232,14 +249,15 @@ def compute_growth_score(data: dict) -> dict:
                         g(data, "KOSIS_CLI_LEADING__chg_yoy"),
                         s, w, gdate(data, "KOSIS_CLI_LEADING")))
 
-    # 5. 광공업생산 YoY (weight 1.0) — KOSIS 통계청, 실물 생산 활동
-    indpro = g(data, "KOSIS_INDPRO_YOY")
-    indpro_w = effective_weight(1.0, raw_date(data, "KOSIS_INDPRO_YOY"))
+    # 5. 광공업생산 YoY (weight 1.0) — KOSIS 우선, 차단 시 ECOS 재배포(INDPRO_YOY) 대체
+    indpro, indpro_src = g_fallback(data, "KOSIS_INDPRO_YOY", "INDPRO_YOY")
+    indpro_w = effective_weight(1.0, raw_date(data, indpro_src))
     s, w = score_component(indpro, -10.0, 15.0, weight=indpro_w)
-    components.append(("KOSIS_INDPRO_YOY", "광공업생산 전년비", indpro, "%",
-                        g(data, "KOSIS_INDPRO_YOY__chg_prev"),
-                        g(data, "KOSIS_INDPRO_YOY__chg_yoy"),
-                        s, w, gdate(data, "KOSIS_INDPRO_YOY")))
+    indpro_label = "광공업생산 전년비" + (" (ECOS 재배포)" if indpro_src == "INDPRO_YOY" else "")
+    components.append((indpro_src, indpro_label, indpro, "%",
+                        g(data, f"{indpro_src}__chg_prev"),
+                        g(data, f"{indpro_src}__chg_yoy"),
+                        s, w, gdate(data, indpro_src)))
 
     # 6. 소매판매 YoY (weight 1.0) — KOSIS 통계청, 내수 수요 (구 인플레 5번째에서 이동)
     retail = g(data, "KOSIS_RETAIL_YOY")
@@ -267,16 +285,18 @@ def compute_inflation_score(data: dict) -> dict:
     """
     components = []
 
-    # 1. CPI YoY (weight 2.0) — KOSIS 통계청, BOK 목표 2%
-    cpi = g(data, "KOSIS_CPI_YOY")
-    cpi_w = effective_weight(2.0, raw_date(data, "KOSIS_CPI_YOY"))
+    # 1. CPI YoY (weight 2.0) — KOSIS 우선, 차단 시 ECOS 재배포(CPI_YOY, 901Y009/0) 대체
+    cpi, cpi_src = g_fallback(data, "KOSIS_CPI_YOY", "CPI_YOY")
+    cpi_w = effective_weight(2.0, raw_date(data, cpi_src))
     s, w = score_component(cpi, -0.5, 6.0, weight=cpi_w)
-    components.append(("KOSIS_CPI_YOY", "소비자물가 전년비", cpi, "%",
-                        g(data, "KOSIS_CPI_YOY__chg_prev"),
-                        g(data, "KOSIS_CPI_YOY__chg_yoy"),
-                        s, w, gdate(data, "KOSIS_CPI_YOY")))
+    cpi_label = "소비자물가 전년비" + (" (ECOS 재배포)" if cpi_src == "CPI_YOY" else "")
+    components.append((cpi_src, cpi_label, cpi, "%",
+                        g(data, f"{cpi_src}__chg_prev"),
+                        g(data, f"{cpi_src}__chg_yoy"),
+                        s, w, gdate(data, cpi_src)))
 
-    # 2. 근원CPI YoY (weight 2.0) — 통계청 농산물·석유류제외
+    # 2. 근원CPI YoY (weight 2.0) — 통계청 농산물·석유류제외, KOSIS 단일 소스
+    # (ECOS 재배포 후보 코드 미검증 — StatisticItemList 조회 전까지 대체 불가)
     core = g(data, "KOSIS_CORE_CPI_YOY")
     core_w = effective_weight(2.0, raw_date(data, "KOSIS_CORE_CPI_YOY"))
     s, w = score_component(core, 0.0, 5.0, weight=core_w)
