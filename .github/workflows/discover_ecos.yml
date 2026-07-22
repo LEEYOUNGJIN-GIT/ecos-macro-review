@@ -1,0 +1,58 @@
+name: Discover ECOS Codes
+
+# 수동 실행 전용 유틸리티. discover_ecos_codes.py 를 실제 ECOS 접속이 되는
+# GitHub Actions 환경에서 실행해 stat_code/item_code를 조회하기 위함
+# (로컬 개발 환경·일부 샌드박스에서는 ecos.bok.or.kr 접속이 막혀 있을 수 있음).
+# 데이터 파이프라인과 무관하며 아무것도 커밋하지 않는다 — 결과는 로그로만 확인한다.
+
+on:
+  workflow_dispatch:
+    inputs:
+      keyword:
+        description: '통계표명 검색어 (예: 소비자동향조사)'
+        required: false
+        default: ''
+      stat_code:
+        description: '세부 항목을 조회할 통계표코드 (예: 511Y002)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run discover_ecos_codes.py
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: |
+          ARGS=()
+          if [ -n "${{ inputs.keyword }}" ]; then
+            ARGS+=(--keyword "${{ inputs.keyword }}")
+          fi
+          if [ -n "${{ inputs.stat_code }}" ]; then
+            ARGS+=(--stat-code "${{ inputs.stat_code }}")
+          fi
+          if [ ${#ARGS[@]} -eq 0 ]; then
+            echo "::error::keyword 또는 stat_code 중 하나는 입력해야 합니다"
+            exit 1
+          fi
+          python discover_ecos_codes.py "${ARGS[@]}"
