@@ -87,10 +87,32 @@ jobs:
           # 변경사항이 있을 때만 커밋
           if git diff --cached --quiet; then
             echo "No changes to commit."
-          else
-            KST=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')
-            git commit -m "data: auto-update ${KST}"
-            # 동시 push 충돌 방지: rebase 후 push
-            git pull --rebase origin "$GITHUB_REF_NAME"
-            git push
+            exit 0
           fi
+
+          KST=$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M KST')
+          git commit -m "data: auto-update ${KST}"
+
+          # data/ 는 매 실행마다 새로 생성되는 산출물이라 라인 단위 병합 대상이 아니다.
+          # GitHub의 "Re-run" 은 최초 트리거 시점의 커밋을 그대로 체크아웃하므로,
+          # 그 사이 같은 워크플로의 1차 시도(또는 다른 실행)가 이미 push 해 원격이
+          # 앞서 있으면 예전 rebase 방식은 "자기 자신의 결과"와 충돌해 실패했다
+          # (최근 30회 중 18회 실패 원인). push 가 거부될 때마다 원격을 fetch 해
+          # 병합하되, data/ 충돌은 이번 실행이 방금 만든 최신 값으로 덮어써도
+          # 안전하므로 -X ours 로 자동 해결한다.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Pushed on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}/5) — fetching and merging origin/${GITHUB_REF_NAME}."
+            git fetch origin "$GITHUB_REF_NAME"
+            if ! git merge -X ours --no-edit "origin/$GITHUB_REF_NAME"; then
+              echo "::error::data/ 이외 경로에서 병합 충돌 발생 — 수동 확인 필요"
+              git merge --abort || true
+              exit 1
+            fi
+            sleep $((attempt * 3))
+          done
+          echo "::error::5회 재시도 후 push 실패"
+          exit 1
