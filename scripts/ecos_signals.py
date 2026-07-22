@@ -1,7 +1,31 @@
 """
 scripts/ecos_signals.py
-data/macro_latest.csv 를 읽어 10개 파생 신호와 종합 위험도를 계산하고
+data/macro_latest.csv 를 읽어 12개 파생 신호와 종합 위험도를 계산하고
 data/ecos_signals.md 를 생성합니다.
+
+v3.5 (2026-07-22): SIG04·SIG13 신규 구현, SIG07·SIG11 확장 (참조전용 8종 편입)
+  - SIG04 기대인플레 디앵커링 신규: EXPECTED_INFLATION(511Y003/FMB) 확보로 구현
+    (v3.4까지 "BOK 서베이 데이터 비공개"로 미구현 상태였으나 실측 조회로 확보됨)
+  - SIG07 신용 스트레스에 DELINQUENCY_HOUSEHOLD/BANK_ALL(가계·은행 연체율) 추가
+  - SIG11 주택시장에 UNSOLD_HOUSING(미분양)·APT_PRICE_NATIONAL(아파트실거래가YoY) 추가
+    (APT_PRICE_NATIONAL은 ecos_fetch.py에서 calc_type을 yoy_pct로 변경)
+  - SIG13 경제심리 종합 신규: CCSI·ESI순환변동치·BSI실적·전망(전산업) 복합
+    (심리·기대 데이터는 실측 데이터(SIG06·SIG08)와 분리해 연성-경성 괴리 자체를 신호로 유지)
+  - 신규 임계치는 전부 제안값(확정 전 검토 권장) — 한국 실측 위기구간 데이터로 미검증
+  - FX_RESERVES·HOUSEHOLD_LOANS(스톡 지표), LOAN_SURVEY_1~3·EXPORT/IMPORT_CN·US_YOY
+    (의미 미검증)는 이번 라운드에서 참조전용 유지
+
+v3.4 (2026-07-22): SIG02·SIG03·SIG06·SIG08 KOSIS 차단 대응 ECOS 재배포 대체 확대
+  - discover_ecos_codes.py 실측 조회로 CORE_CPI_YOY(901Y010/QB), CLI_COINCIDENT
+    /CLI_LEADING(901Y067/I16D·I16E), SERVICE_PROD_YOY(901Y038/I51A) 확보
+  - SIG02(실질금리갭)·SIG03(인플레이션 레짐)의 근원CPI, SIG06(내수·소비)의
+    서비스업생산, SIG08(경기사이클)의 동행·선행지수가 전부 g_fallback 적용
+  - "근원CPI/CLI/서비스업생산은 ECOS 대체 없음"이라던 v3.2까지의 문서화가
+    틀렸음이 드러남 — StatisticItemList 실측 조회 결과로 정정
+
+v3.2 (2026-07-22): SIG03·SIG09 KOSIS 차단 대응 ECOS 재배포 대체(g_fallback)
+  - KOSIS_CPI_YOY/KOSIS_INDPRO_YOY 미수집 시 ECOS CPI_YOY/INDPRO_YOY 로 자동 대체
+  - 근원CPI(SIG02)는 검증된 ECOS 대체 코드가 없어 KOSIS 단일 소스 유지 — 상세문에 명시
 
 v3.1 (2026-05-27): 근원CPI·신호 산식 개선
   - SIG02 실질금리 갭 정규화 (-2,3)→(-4,4) — 깊은 음의 실질금리 클리핑 완화
@@ -28,8 +52,8 @@ v2.2 (2026-05-26):
   SIG11 주택시장: KB주택가격지수(YoY) 기반으로 재설계
 
 소거된 신호:
-  SIG04 기대인플레 디앵커링 — ECOS 기대인플레 시리즈 미수록 (BOK 서베이 데이터 비공개)
-  SIG10 수출 모멘텀 — KOSIS 관세청 수출입 Open API tblId 미확인 (v1.2 제거)
+  SIG10 수출 모멘텀 — KOSIS 관세청 수출입 Open API tblId 미확인 (v1.2 제거,
+    단 EXPORT_CN_YOY/EXPORT_US_YOY 참조전용 원자료는 v3.4에서 확보됨)
 """
 
 import sys
@@ -90,6 +114,18 @@ def gdate(data: dict, series_id: str) -> str:
     return raw
 
 
+def g_fallback(data: dict, primary: str, fallback: str) -> tuple[float | None, str]:
+    """KOSIS(primary)가 GitHub Actions에서 간헐 차단되는 문제 대응.
+    primary 값이 없으면 fallback(ECOS 재배포)을 사용한다. (value, 실제 사용된 series_id) 반환."""
+    v = g(data, primary)
+    if v is not None:
+        return v, primary
+    v = g(data, fallback)
+    if v is not None:
+        return v, fallback
+    return None, primary
+
+
 def score_0_10(value: float | None, low: float, high: float, invert: bool = False) -> float | None:
     """value를 [low, high] 구간에서 0-10 점수로 정규화."""
     if value is None:
@@ -110,6 +146,15 @@ def base_effect_note(chg_prev: float | None, threshold: float = 5.0) -> str:
     if chg_prev is not None and abs(chg_prev) > threshold:
         return " ⚠️기저효과"
     return ""
+
+
+def _coverage_note(scored_vals: list, total: int) -> str:
+    """구성요소 중 실제 값이 있는 개수를 '(N개 중 M개 반영)' 형태로 반환.
+    전부 반영된 경우 빈 문자열."""
+    m = len(scored_vals)
+    if m >= total:
+        return ""
+    return f" ({total}개 중 {m}개 반영)"
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +206,7 @@ def trend_arrow(chg: float | None, threshold: float = 0.05) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 신호 계산 함수 (10개: SIG01-03·05-09·11-12)
+# 신호 계산 함수 (12개: SIG01-09·11-13)
 # ---------------------------------------------------------------------------
 def sig_01_term_spread(d: dict) -> dict:
     """1. 장단기 금리 스프레드 (국고채 10Y - 기준금리)"""
@@ -189,44 +234,79 @@ def sig_01_term_spread(d: dict) -> dict:
 
 
 def sig_02_real_rate_gap(d: dict) -> dict:
-    """2. 실질금리 갭 (기준금리 - 근원CPI YoY, 통계청 농산물·석유류제외)"""
+    """2. 실질금리 갭 (기준금리 - 근원CPI YoY, 농산물·석유류제외)
+
+    근원CPI는 KOSIS_CORE_CPI_YOY 우선, 차단 시 ECOS 재배포(CORE_CPI_YOY, 901Y010/QB)로 대체.
+    """
     base = g(d, "BOK_BASE_RATE")
-    core = g(d, "KOSIS_CORE_CPI_YOY")
+    core, core_src = g_fallback(d, "KOSIS_CORE_CPI_YOY", "CORE_CPI_YOY")
     gap  = round(base - core, 4) if (base is not None and core is not None) else None
     score = score_0_10(gap, -4.0, 4.0)
     base_chg = g(d, "BOK_BASE_RATE__chg_prev")
-    core_chg = g(d, "KOSIS_CORE_CPI_YOY__chg_prev")
+    core_chg = g(d, f"{core_src}__chg_prev")
     chg_prev = round(base_chg - core_chg, 4) if (base_chg is not None and core_chg is not None) else None
+    core_note = " [ECOS 재배포 대체]" if core_src == "CORE_CPI_YOY" else ""
+    detail = f"기준금리({fmt(base)}) - 근원CPI({fmt(core)}{core_note}) = {fmt(gap)}%p"
+    if core is None:
+        detail += " — 근원CPI 미수집(KOSIS·ECOS 모두 실패)"
     return {
         "id": "SIG02", "name": "실질금리 갭",
         "value": gap, "unit": "%p",
-        "date": gdate(d, "KOSIS_CORE_CPI_YOY"),
+        "date": gdate(d, core_src),
         "chg_prev": chg_prev, "chg_unit": "%p",
-        "detail": f"기준금리({fmt(base)}) - 근원CPI({fmt(core)}, 통계청) = {fmt(gap)}%p",
+        "detail": detail,
         "threshold": "≥2.0 강한 긴축 / ≤-1.0 완화",
         "score": score,
     }
 
 
 def sig_03_inflation_regime(d: dict) -> dict:
-    """3. 인플레이션 레짐 (CPI, 근원CPI, PPI 복합)"""
-    cpi  = g(d, "KOSIS_CPI_YOY")
-    core = g(d, "KOSIS_CORE_CPI_YOY")
+    """3. 인플레이션 레짐 (CPI, 근원CPI, PPI 복합)
+
+    CPI는 KOSIS_CPI_YOY 우선, 차단 시 ECOS 재배포(CPI_YOY, 901Y009/0)로 대체.
+    근원CPI는 KOSIS_CORE_CPI_YOY 우선, 차단 시 ECOS 재배포(CORE_CPI_YOY, 901Y010/QB)로 대체.
+    """
+    cpi, cpi_src   = g_fallback(d, "KOSIS_CPI_YOY", "CPI_YOY")
+    core, core_src = g_fallback(d, "KOSIS_CORE_CPI_YOY", "CORE_CPI_YOY")
     ppi  = g(d, "PPI_YOY")
     vals = [v for v in [cpi, core, ppi] if v is not None]
     composite = round(float(np.mean(vals)), 4) if vals else None
     score = score_0_10(composite, -1.0, 6.0)
-    chg_vals = [v for v in [g(d, "KOSIS_CPI_YOY__chg_prev"),
-                             g(d, "KOSIS_CORE_CPI_YOY__chg_prev"),
+    chg_vals = [v for v in [g(d, f"{cpi_src}__chg_prev"),
+                             g(d, f"{core_src}__chg_prev"),
                              g(d, "PPI_YOY__chg_prev")] if v is not None]
     chg_prev = round(float(np.mean(chg_vals)), 4) if chg_vals else None
+    cpi_note  = " [ECOS 재배포 대체]" if cpi_src == "CPI_YOY" else ""
+    core_note = " [ECOS 재배포 대체]" if core_src == "CORE_CPI_YOY" else ""
     return {
         "id": "SIG03", "name": "인플레이션 레짐",
         "value": composite, "unit": "% (복합평균)",
-        "date": gdate(d, "KOSIS_CPI_YOY"),
+        "date": gdate(d, cpi_src),
         "chg_prev": chg_prev, "chg_unit": "%p",
-        "detail": f"CPI({fmt(cpi)}) / 근원CPI({fmt(core)}) / PPI({fmt(ppi)}) → 복합 {fmt(composite)}%",
+        "detail": (f"CPI({fmt(cpi)}{cpi_note}) / 근원CPI({fmt(core)}{core_note}) / PPI({fmt(ppi)}) "
+                   f"→ 복합 {fmt(composite)}%"),
         "threshold": "≥3.5 고인플레 / ≤1.0 디플레 경계",
+        "score": score,
+    }
+
+
+def sig_04_inflation_expectation(d: dict) -> dict:
+    """4. 기대인플레 디앵커링 (향후1년 기대인플레이션율)
+
+    ECOS 511Y003/FMB 단일 소스. KOSIS 동등 시리즈 없음 — g() 직접 사용.
+    """
+    exp_inf = g(d, "EXPECTED_INFLATION")
+    # 제안값 — 확정 전 검토 권장: 한국 기대인플레 실측 위기구간 앵커 미확인.
+    # BOK 물가안정목표 2% 기준 상방 괴리 폭으로 임시 스케일.
+    score = score_0_10(exp_inf, 1.0, 4.5) if exp_inf is not None else None
+    chg_prev = g(d, "EXPECTED_INFLATION__chg_prev")
+    return {
+        "id": "SIG04", "name": "기대인플레 디앵커링",
+        "value": exp_inf, "unit": "% (향후1년 기대인플레이션율)",
+        "date": gdate(d, "EXPECTED_INFLATION"),
+        "chg_prev": chg_prev, "chg_unit": "%p",
+        "detail": f"향후1년 기대인플레이션율({fmt(exp_inf)}%) [ECOS 511Y003/FMB, KOSIS 대체 없음]",
+        "threshold": "제안값(확정 전 검토 권장) ≥3.5 상방 디앵커링 경계 / ≤1.0 하방(디플레 우려)",
         "score": score,
     }
 
@@ -255,9 +335,13 @@ def sig_05_labor_market(d: dict) -> dict:
 
 
 def sig_06_domestic_demand(d: dict) -> dict:
-    """6. 내수·소비 (소매판매 YoY + 서비스업생산 YoY, KOSIS)"""
+    """6. 내수·소비 (소매판매 YoY + 서비스업생산 YoY)
+
+    서비스업생산은 KOSIS_SERVICE_PROD_YOY 우선, 차단 시 ECOS 재배포
+    (SERVICE_PROD_YOY, 901Y038/I51A)로 대체. 소매판매는 ECOS 대체 없음(KOSIS 단일 소스).
+    """
     retail = g(d, "KOSIS_RETAIL_YOY")
-    svc    = g(d, "KOSIS_SERVICE_PROD_YOY")
+    svc, svc_src = g_fallback(d, "KOSIS_SERVICE_PROD_YOY", "SERVICE_PROD_YOY")
     vals   = [v for v in [retail, svc] if v is not None]
     composite = round(float(np.mean(vals)), 2) if vals else None
     # 점수: 높은 성장(호조)이 낮은 점수 → invert=True (위험 점수 체계)
@@ -266,29 +350,35 @@ def sig_06_domestic_demand(d: dict) -> dict:
     svals = [v for v in [s_ret, s_svc] if v is not None]
     score = round(float(np.mean(svals)), 2) if svals else None
     chg_vals = [v for v in [g(d, "KOSIS_RETAIL_YOY__chg_prev"),
-                             g(d, "KOSIS_SERVICE_PROD_YOY__chg_prev")] if v is not None]
+                             g(d, f"{svc_src}__chg_prev")] if v is not None]
     chg_prev = round(float(np.mean(chg_vals)), 4) if chg_vals else None
-    svc_chg  = g(d, "KOSIS_SERVICE_PROD_YOY__chg_prev")
+    svc_chg  = g(d, f"{svc_src}__chg_prev")
+    svc_note = " [ECOS 재배포 대체]" if svc_src == "SERVICE_PROD_YOY" else ""
     return {
         "id": "SIG06", "name": "내수·소비",
         "value": composite, "unit": "% YoY (소매·서비스 복합)",
         "date": gdate(d, "KOSIS_RETAIL_YOY"),
         "chg_prev": chg_prev, "chg_unit": "%p",
-        "detail": (f"소매판매YoY({fmt(retail)}%) / 서비스업생산YoY({fmt(svc)}%)"
+        "detail": (f"소매판매YoY({fmt(retail)}%) / 서비스업생산YoY({fmt(svc)}{svc_note}%)"
                    f"{base_effect_note(svc_chg)} "
-                   f"→ 복합 {fmt(composite)}% [통계청 KOSIS, 익월 말 발표]"),
+                   f"→ 복합 {fmt(composite)}% [익월 말 발표]"),
         "threshold": "복합 YoY <-2% 경계 / <-5% 위험 / 서비스 동반 부진 시 복합 신호",
         "score": score,
     }
 
 
 def sig_07_credit_stress(d: dict) -> dict:
-    """7. 신용 스트레스 (회사채-국채 스프레드, CD-기준금리 스프레드)"""
+    """7. 신용 스트레스 (회사채-국채 스프레드, CD-기준금리 스프레드, 가계·은행 연체율)"""
     credit_sp = g(d, "CREDIT_SPREAD")
     cd_sp     = g(d, "CD_BOK_SPREAD")
+    delinq_hh = g(d, "DELINQUENCY_HOUSEHOLD")
+    delinq_bk = g(d, "DELINQUENCY_BANK_ALL")
     s_credit  = score_0_10(credit_sp, 0.3, 4.0) if credit_sp is not None else None
     s_cd      = score_0_10(cd_sp, 0.0, 1.5)     if cd_sp     is not None else None
-    vals  = [v for v in [s_credit, s_cd] if v is not None]
+    # 제안값 — 확정 전 검토 권장: 국내 가계/은행 연체율 실측 위기구간 앵커 미확인.
+    s_delinq_hh = score_0_10(delinq_hh, 0.3, 2.0) if delinq_hh is not None else None
+    s_delinq_bk = score_0_10(delinq_bk, 0.3, 1.5) if delinq_bk is not None else None
+    vals  = [v for v in [s_credit, s_cd, s_delinq_hh, s_delinq_bk] if v is not None]
     score = round(float(np.mean(vals)), 2) if vals else None
     bbb_chg    = g(d, "CORP_BOND_BBB_MINUS__chg_prev")
     bond3y_chg = g(d, "GOV_BOND_3Y__chg_prev")
@@ -298,59 +388,78 @@ def sig_07_credit_stress(d: dict) -> dict:
         "value": credit_sp, "unit": "%p (크레딧 스프레드)",
         "date": gdate(d, "CREDIT_SPREAD"),
         "chg_prev": chg_prev, "chg_unit": "%p",
-        "detail": f"회사채BBB-국채3Y({fmt(credit_sp)}%p) / CD-기준금리({fmt(cd_sp)}%p)",
-        "threshold": "크레딧 스프레드 ≥2.0 경계 / ≥3.0 위험",
+        "detail": (f"회사채BBB-국채3Y({fmt(credit_sp)}%p) / CD-기준금리({fmt(cd_sp)}%p) / "
+                   f"가계대출연체율({fmt(delinq_hh)}%) / 은행전체연체율({fmt(delinq_bk)}%)"
+                   f"{_coverage_note(vals, 4)}"),
+        "threshold": ("크레딧 스프레드 ≥2.0 경계 / ≥3.0 위험 / "
+                      "연체율(제안값·확정 전 검토 권장) ≥1.5 경계"),
         "score": score,
     }
 
 
 def sig_08_business_cycle(d: dict) -> dict:
-    """8. 경기 사이클 (동행·선행지수 순환변동치, KOSIS 통계청)"""
-    coin = g(d, "KOSIS_CLI_COINCIDENT")
-    lead = g(d, "KOSIS_CLI_LEADING")
+    """8. 경기 사이클 (동행·선행지수 순환변동치)
+
+    KOSIS_CLI_COINCIDENT/LEADING 우선, 차단 시 ECOS 재배포(CLI_COINCIDENT,
+    CLI_LEADING — 901Y067/I16D·I16E)로 대체.
+    """
+    coin, coin_src = g_fallback(d, "KOSIS_CLI_COINCIDENT", "CLI_COINCIDENT")
+    lead, lead_src = g_fallback(d, "KOSIS_CLI_LEADING", "CLI_LEADING")
     s_coin = score_0_10(coin, 94.0, 102.0, invert=True) if coin is not None else None
     s_lead = score_0_10(lead, 94.0, 102.0, invert=True) if lead is not None else None
     vals  = [v for v in [s_coin, s_lead] if v is not None]
     score = round(float(np.mean(vals)), 2) if vals else None
-    chg_prev = g(d, "KOSIS_CLI_COINCIDENT__chg_prev")
+    chg_prev = g(d, f"{coin_src}__chg_prev")
+    coin_note = " [ECOS 재배포 대체]" if coin_src == "CLI_COINCIDENT" else ""
+    lead_note = " [ECOS 재배포 대체]" if lead_src == "CLI_LEADING" else ""
     return {
         "id": "SIG08", "name": "경기 사이클",
         "value": coin, "unit": "지수 (동행순환변동치)",
-        "date": gdate(d, "KOSIS_CLI_COINCIDENT"),
+        "date": gdate(d, coin_src),
         "chg_prev": chg_prev, "chg_unit": "pt",
-        "detail": (f"동행지수순환변동({fmt(coin)}) / 선행지수순환변동({fmt(lead)}) "
-                   "[통계청 KOSIS — 약 2개월 발표 지연]"),
+        "detail": (f"동행지수순환변동({fmt(coin)}{coin_note}) / 선행지수순환변동({fmt(lead)}{lead_note}) "
+                   "[약 2개월 발표 지연]"),
         "threshold": "<98 경기 하강 / <96 침체 신호",
         "score": score,
     }
 
 
 def sig_09_industrial_production(d: dict) -> dict:
-    """9. 산업생산 모멘텀 (광공업생산지수 전년비, KOSIS 통계청)"""
-    indpro   = g(d, "KOSIS_INDPRO_YOY")
+    """9. 산업생산 모멘텀 (광공업생산지수 전년비)
+
+    KOSIS_INDPRO_YOY 우선, 차단 시 ECOS 재배포(INDPRO_YOY, 401Y015/*AA/C)로 대체.
+    """
+    indpro, indpro_src = g_fallback(d, "KOSIS_INDPRO_YOY", "INDPRO_YOY")
     score    = score_0_10(indpro, -10.0, 15.0, invert=True) if indpro is not None else None
-    chg_prev = g(d, "KOSIS_INDPRO_YOY__chg_prev")
+    chg_prev = g(d, f"{indpro_src}__chg_prev")
+    src_note = " [ECOS 재배포 대체]" if indpro_src == "INDPRO_YOY" else " [통계청 KOSIS, 익월 말 발표]"
     return {
         "id": "SIG09", "name": "산업생산 모멘텀",
         "value": indpro, "unit": "% YoY (광공업생산)",
-        "date": gdate(d, "KOSIS_INDPRO_YOY"),
+        "date": gdate(d, indpro_src),
         "chg_prev": chg_prev, "chg_unit": "%p",
-        "detail": (f"광공업생산지수 전년비({fmt(indpro)}%)"
-                   f"{base_effect_note(chg_prev)} [통계청 KOSIS, 익월 말 발표]"),
+        "detail": f"광공업생산지수 전년비({fmt(indpro)}%){base_effect_note(chg_prev)}{src_note}",
         "threshold": "YoY <-5% 경계 / <-10% 위험 / >10% 호조",
         "score": score,
     }
 
 
 def sig_11_housing_market(d: dict) -> dict:
-    """11. 주택시장 (KB주택매매가격지수 YoY, KB전세가격지수 YoY, 착공지수 복합)"""
+    """11. 주택시장 (KB매매·전세 YoY, 착공지수, 미분양(전국), 아파트실거래가YoY(전국) 복합)"""
     kb_buy    = g(d, "KB_HOUSE_YOY")
     kb_jeonse = g(d, "KB_JEONSE_YOY")
     start     = g(d, "HOUSING_START")
+    unsold    = g(d, "UNSOLD_HOUSING")
+    apt_yoy   = g(d, "APT_PRICE_NATIONAL")
     s_buy     = score_0_10(kb_buy, -5.0, 15.0)         if kb_buy    is not None else None
     s_jeonse  = score_0_10(kb_jeonse, -5.0, 15.0)      if kb_jeonse is not None else None
     s_start   = score_0_10(start, 60.0, 140.0, invert=True) if start is not None else None
-    vals      = [v for v in [s_buy, s_jeonse, s_start] if v is not None]
+    # 제안값 — 확정 전 검토 권장: 전국 미분양 실측 위기구간 앵커 미확인.
+    s_unsold  = score_0_10(unsold, 20000.0, 90000.0) if unsold is not None else None
+    # 제안값 — 확정 전 검토 권장: 아파트실거래가(전국)YoY가 KB매매가격YoY와 동일 스케일이라는
+    # 가정. 산출방법론(실거래신고 vs 호가) 달라 검증 필요.
+    s_apt     = score_0_10(apt_yoy, -5.0, 15.0)      if apt_yoy is not None else None
+    vals      = [v for v in [s_buy, s_jeonse, s_start, s_unsold, s_apt] if v is not None]
     score     = round(float(np.mean(vals)), 2) if vals else None
     chg_prev  = g(d, "KB_HOUSE_YOY__chg_prev")
     return {
@@ -359,8 +468,11 @@ def sig_11_housing_market(d: dict) -> dict:
         "date": gdate(d, "KB_HOUSE_YOY"),
         "chg_prev": chg_prev, "chg_unit": "%p",
         "detail": (f"KB매매가격YoY({fmt(kb_buy)}%) / KB전세가격YoY({fmt(kb_jeonse)}%) / "
-                   f"착공지수({fmt(start)})"),
-        "threshold": "매매가격 YoY >10% 과열 / 착공지수 <80 공급 급감·가격 압박",
+                   f"착공지수({fmt(start)}) / 미분양(전국)({fmt(unsold, 0)}호) / "
+                   f"아파트실거래가YoY(전국)({fmt(apt_yoy)}%)"
+                   f"{_coverage_note(vals, 5)}"),
+        "threshold": ("매매가격 YoY >10% 과열 / 착공지수 <80 공급 급감·가격 압박 / "
+                      "미분양(제안값·확정 전 검토 권장) ≥90000호 위험"),
         "score": score,
     }
 
@@ -381,17 +493,60 @@ def sig_12_kospi_regime(d: dict) -> dict:
     }
 
 
+def sig_13_economic_sentiment(d: dict) -> dict:
+    """13. 경제심리 종합 (CCSI, ESI순환변동치, BSI실적·전망[전산업] 복합)
+
+    ESI_RAW/NEWS_SENTIMENT(고빈도)/BSI_ACTUAL_MFG·BSI_FORECAST_MFG(제조업 서브지표)는
+    detail 참고 표시만, 점수 미반영 — 경성지표(SIG06·SIG08)와 분리된 '기대·심리'
+    신호로 유지해 연성-경성 데이터 괴리 자체를 신호로 남긴다.
+    """
+    ccsi        = g(d, "CCSI")
+    esi_cyc     = g(d, "ESI_CYCLE")
+    esi_raw     = g(d, "ESI_RAW")
+    bsi_act     = g(d, "BSI_ACTUAL_ALL")
+    bsi_act_mfg = g(d, "BSI_ACTUAL_MFG")
+    bsi_fc      = g(d, "BSI_FORECAST_ALL")
+    bsi_fc_mfg  = g(d, "BSI_FORECAST_MFG")
+    news        = g(d, "NEWS_SENTIMENT")
+
+    # 제안값 — 확정 전 검토 권장: 100=중립 기준선은 심리지수 계열 공통 관행이나 저역/고역
+    # 폭은 한국 실측 경기저점·과열기 데이터로 검증 안 됨. BSI는 국내 특유의 60~100대
+    # 저역 관행 반영해 CLI(94~102)보다 폭을 넓게 잡음.
+    s_ccsi    = score_0_10(ccsi,    70.0, 115.0, invert=True) if ccsi    is not None else None
+    s_esi_cyc = score_0_10(esi_cyc, 92.0, 108.0, invert=True) if esi_cyc is not None else None
+    s_bsi_act = score_0_10(bsi_act, 60.0, 100.0, invert=True) if bsi_act is not None else None
+    s_bsi_fc  = score_0_10(bsi_fc,  60.0, 100.0, invert=True) if bsi_fc  is not None else None
+    vals  = [v for v in [s_ccsi, s_esi_cyc, s_bsi_act, s_bsi_fc] if v is not None]
+    score = round(float(np.mean(vals)), 2) if vals else None
+    chg_prev = g(d, "CCSI__chg_prev")
+    return {
+        "id": "SIG13", "name": "경제심리 종합",
+        "value": ccsi, "unit": "지수 (CCSI)",
+        "date": gdate(d, "CCSI"),
+        "chg_prev": chg_prev, "chg_unit": "pt",
+        "detail": (f"CCSI({fmt(ccsi)}) / ESI순환치({fmt(esi_cyc)}) / "
+                   f"BSI실적·전산업({fmt(bsi_act)}) / BSI전망·전산업({fmt(bsi_fc)})"
+                   f"{_coverage_note(vals, 4)} "
+                   f"— 참고(점수 미반영): ESI원계열({fmt(esi_raw)}) / "
+                   f"BSI실적·제조업({fmt(bsi_act_mfg)}) / BSI전망·제조업({fmt(bsi_fc_mfg)}) / "
+                   f"뉴스심리·일별({fmt(news)})"),
+        "threshold": "제안값(확정 전 검토 권장) CCSI ≤85 비관 경계 / BSI(전산업) ≤70 위축 경계",
+        "score": score,
+    }
+
+
 # ---------------------------------------------------------------------------
 # 전체 신호 실행
 # ---------------------------------------------------------------------------
 SIGNAL_FUNCS = [
     sig_01_term_spread, sig_02_real_rate_gap, sig_03_inflation_regime,
-    # SIG04 기대인플레 미구현: ECOS 기대인플레 시리즈 비공개 (BOK 서베이 데이터)
+    sig_04_inflation_expectation,   # v3.5 신규: EXPECTED_INFLATION(511Y003/FMB) 확보로 구현
     sig_05_labor_market,
     sig_06_domestic_demand,     # v3.0 신규: KOSIS 소매판매+서비스업생산
     sig_07_credit_stress, sig_08_business_cycle,
     sig_09_industrial_production,
     sig_11_housing_market, sig_12_kospi_regime,
+    sig_13_economic_sentiment,      # v3.5 신규: CCSI/ESI순환치/BSI실적·전망(전산업)
 ]
 
 
@@ -416,6 +571,7 @@ def _build_staleness_block(data: dict, generated_at: str, signals: list[dict]) -
         ("SIG08", "KOSIS_CLI_COINCIDENT"),
         ("SIG09", "KOSIS_INDPRO_YOY"),
         ("SIG06", "KOSIS_RETAIL_YOY"),
+        ("SIG11", "APT_PRICE_NATIONAL"),  # 제안 — 확정 전 검토 권장(등기 기반 실거래 신고 특성상 지연 가능성)
     ]
     stale_items: list[str] = []
     for sig_id, sid in CHECK_MAP:

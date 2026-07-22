@@ -19,7 +19,8 @@ MACRO_CSV  = DATA_DIR / "macro_latest.csv"
 # ECOS는 항상 확보되어야 하는 원천(자체 API 연결 이슈 없음)이므로 하드 실패 기준으로 사용.
 # KOSIS는 kosis.kr 측 네트워크 차단으로 전체 실패할 수 있어 경고로만 처리하고
 # 파이프라인은 ECOS 데이터만으로도 계속 진행한다.
-MIN_SERIES_ECOS  = 18   # ECOS 21개 중 최소 확보 기준
+MIN_SERIES_ECOS  = 18   # ECOS 51개 중 최소 확보 기준 (완전 붕괴 감지용 — v3.4 신규 참조전용
+                         # 24종은 미검증 조합코드가 섞여있어 일부 실패 가능하므로 낮게 유지)
 MIN_SERIES_TOTAL = 18   # 전체(ECOS+KOSIS) 최소 확보 기준 — 완전 붕괴 감지용
 MIN_SERIES_KOSIS = 8    # 미달 시 경고만 (하드 실패 아님)
 CORE_CPI_MAX_GAP = 1.5
