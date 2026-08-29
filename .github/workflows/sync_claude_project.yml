@@ -45,10 +45,12 @@ jobs:
               ("ecos_latest.md",    "data/ecos_latest.md"),
               ("kosis_latest.md",   "data/kosis_latest.md"),
               ("ecos_regime.md",    "data/ecos_regime.md"),
-              ("ecos_signals.md",   "data/ecos_signals.md"),
               ("macro_latest.csv",  "data/macro_latest.csv"),
           ]
-          target_names = {f[0] for f in FILES}
+          # Claude 프로젝트로 전송하지 않는 파일. 이미 업로드된 사본은 삭제하고
+          # 재업로드하지 않는다.
+          REMOVE_ONLY = {"ecos_signals.md"}
+          target_names = {f[0] for f in FILES} | REMOVE_ONLY
 
           # 기존 문서 목록 조회
           r = requests.get(
