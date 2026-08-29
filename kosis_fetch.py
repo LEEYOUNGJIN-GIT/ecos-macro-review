@@ -691,8 +691,8 @@ def save_md(df: pd.DataFrame, fetched_at: str) -> None:
         "> **출처**: 통계청(orgId=101) - KOSIS Open API",
         "> **[참조전용]**: 신호/레짐 점수 산정에 미사용, 분석 참고 전용",
         "> **KOSIS_CORE_CPI_YOY**: 통계청 농산물·석유류제외(DT_1J22007, C1=QB)",
-        "> **CPI·근원CPI·광공업생산**: KOSIS 차단 시 ecos_signals.md/ecos_regime.md 는 "
-        "ECOS 재배포(CPI_YOY, INDPRO_YOY)로 자동 대체됨 — 이 표가 비어 있어도 신호·레짐은 정상 산출 가능",
+        "> **CPI·근원CPI·광공업생산**: KOSIS 차단 시 ecos_regime.md 는 "
+        "ECOS 재배포(CPI_YOY, INDPRO_YOY)로 자동 대체됨 — 이 표가 비어 있어도 레짐은 정상 산출 가능",
         "",
         *_status_log_md_lines(),
         "",
