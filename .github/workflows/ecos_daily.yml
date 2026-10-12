@@ -78,6 +78,25 @@ jobs:
       - name: Step 3 - Generate regime report
         run: python scripts/ecos_regime.py
 
+      # ── 3b단계: 시계열 이력 저장 (data/series/, 부가 산출물) ─────────────────
+      # 기존 산출물은 읽기만 한다. 실패해도 위 산출물 커밋·Claude 동기화를 막지 않도록
+      # continue-on-error. 같은 job 안에서 돌려 Step 4 의 단일 커밋·push 재시도 루프를
+      # 그대로 공유한다(별도 워크플로로 분리하면 같은 시각 main 에 push 하는 경쟁자가
+      # 하나 더 생긴다). --probe 는 UNVERIFIED 후보를 ecos_fetch 와 같은 경로로 실조회해
+      # 데이터 행이 반환된 경우에만 CONFIRMED 로 올린다.
+      - name: Step 3b - ECOS 시계열 이력 수집 (실패해도 파이프라인 계속)
+        id: series_collect
+        continue-on-error: true
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: python scripts/ecos_series_collect.py --probe
+
+      - name: Step 3c - data/series 스키마 검증 (실패해도 파이프라인 계속)
+        continue-on-error: true
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: python scripts/validate_series.py
+
       # ── 4단계: 결과물 커밋 & 푸시 ─────────────────────────────────────────
       - name: Step 4 - Commit and push results
         run: |

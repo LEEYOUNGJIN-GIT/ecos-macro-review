@@ -1,0 +1,13 @@
+key,stat_code,item_code,error,verified_at,note
+BSI_ACTUAL_ALL,512Y013,AA/99988,INFO-200,2026-07-22,v3.6 제거 (commit d576471). StatisticItemList 로는 항목 존재했으나 StatisticSearch 실조회 INFO-200. 업황실적BSI(전산업)
+BSI_ACTUAL_MFG,512Y013,AA/C0000,INFO-200,2026-07-22,v3.6 제거 (commit d576471). 업황실적BSI(제조업). item_code 추정 오류로 판단
+BSI_FORECAST_ALL,512Y014,BA/99988,INFO-200,2026-07-22,v3.6 제거 (commit d576471). 업황전망BSI(전산업)
+BSI_FORECAST_MFG,512Y014,BA/C0000,INFO-200,2026-07-22,v3.6 제거 (commit d576471). 업황전망BSI(제조업)
+EXPORT_CN_YOY,901Y121,CN/T002,INFO-200,2026-07-22,v3.6 제거 (commit d576471). 대중국 수출금액. T002=수출 매핑도 관행적 추정이었음
+IMPORT_CN_YOY,901Y121,CN/T004,INFO-200,2026-07-22,v3.6 제거 (commit d576471). 대중국 수입금액
+EXPORT_US_YOY,901Y121,US/T002,INFO-200,2026-07-22,v3.6 제거 (commit d576471). 대미국 수출금액
+IMPORT_US_YOY,901Y121,US/T004,INFO-200,2026-07-22,v3.6 제거 (commit d576471). 대미국 수입금액
+DELINQUENCY_BANK_ALL,901Y054,AB,INFO-200,2026-07-22,v3.6 제거 (commit d576471). 같은 표의 MO3AB(DELINQUENCY_HOUSEHOLD)는 정상 — 표 존재가 항목 유효를 뜻하지 않음
+LOAN_SURVEY_1,514Y001,AA,INFO-200,2026-07-22,v3.6 제거 (commit d576471). 대출행태서베이(분기). AA 의미도 미확인 상태였음
+LOAN_SURVEY_2,514Y002,BB,INFO-200,2026-07-22,v3.6 제거 (commit d576471). 대출행태서베이(분기)
+LOAN_SURVEY_3,514Y003,CC,INFO-200,2026-07-22,v3.6 제거 (commit d576471). 대출행태서베이(분기)
