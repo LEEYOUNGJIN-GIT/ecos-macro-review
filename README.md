@@ -22,6 +22,14 @@
 > 검증된 의미의 지표만 판정 수식에 편입. 나머지 6종(FX_RESERVES·HOUSEHOLD_LOANS 등 스톡
 > 지표, ESI_RAW·NEWS_SENTIMENT 등 고빈도/중복 서브지표)은 **[참조전용]**으로 유지.
 
+> **시계열 이력 저장 (data/series/, 추가 산출물)**: `scripts/ecos_series_collect.py`가 ECOS
+> 시리즈별 전체 이력(`date,value`, 원자료 그대로)을 `data/series/ecos/`에 증분 누적하고, KOSIS는
+> `kosis_latest.csv` 값을 그대로 `data/series/kosis/`에 복사한다(결측을 ECOS 값으로 메우지 않음).
+> 기존 산출물은 바뀌지 않는다. 일별 원/달러·일별 금리 후보는 실조회로 데이터 행이 확인될 때만
+> 별도 series_id로 수집된다(`data/series/ecos_candidates.csv`). 무효 판정 코드는
+> `data/ecos_invalid_codes.csv`에 등록돼 재제안을 막는다. 스키마는 `docs/SERIES_SCHEMA.md`,
+> 감사 결과는 `docs/AUDIT_ecos.md` 참고.
+
 ---
 
 ## 아키텍처
@@ -222,6 +230,8 @@ Step 1b: kosis_fetch.py    (KOSIS_API_KEY)  → data/kosis_latest.csv/.md
 Step 1c: merge_macro.py                     → data/macro_latest.csv
 Step 2:  ecos_signals.py                    → data/ecos_signals.md
 Step 3:  ecos_regime.py                     → data/ecos_regime.md
+Step 3b: scripts/ecos_series_collect.py --probe → data/series/ (실패해도 계속)
+Step 3c: scripts/validate_series.py             (실패해도 계속)
 Step 4:  git commit & push data/
 ```
 
