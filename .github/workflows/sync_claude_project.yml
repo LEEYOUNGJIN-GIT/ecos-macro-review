@@ -65,19 +65,24 @@ jobs:
           existing = r.json()
           print(f"현재 프로젝트 문서 수: {len(existing)}")
 
-          # 동기화 대상 파일만 삭제 (다른 파일은 건드리지 않음)
+          # [수정] 종전: 대상 문서를 먼저 전부 삭제한 뒤 업로드 -> 업로드가 중간에 실패하면 프로젝트에
+          # 파일이 없는 채로 남는다. 변경: 새 사본 업로드가 성공한 파일만 기존 사본을 삭제한다.
+          old_ids = {}
           for doc in existing:
               name = doc.get("file_name", "")
-              if name in target_names:
-                  uid = doc.get("uuid") or doc.get("id", "")
+              uid = doc.get("uuid") or doc.get("id", "")
+              if name in REMOVE_ONLY:
                   d = requests.delete(
-                      f"{base}/organizations/{org}/projects/{proj}/docs/{uid}",
-                      headers=headers
-                  )
-                  print(f"[DEL] {name}: HTTP {d.status_code}")
+                      f"{base}/organizations/{org}/projects/{proj}/docs/{uid}", headers=headers)
+                  print(f"[DEL(remove-only)] {name}: HTTP {d.status_code}")
+              elif name in target_names:
+                  old_ids.setdefault(name, []).append(uid)
 
-          # 새 파일 업로드
+          failed = []
           for fname, fpath in FILES:
+              if not os.path.isfile(fpath):
+                  print(f"[SKIP] {fname}: {fpath} not found (기존 사본 유지)")
+                  continue
               with open(fpath, encoding="utf-8") as f:
                   content = f.read()
               r = requests.post(
@@ -85,12 +90,20 @@ jobs:
                   headers=headers,
                   json={"file_name": fname, "content": content}
               )
-              if r.ok:
-                  print(f"[OK]  Uploaded {fname} ({len(content):,} chars)")
-              else:
-                  print(f"[ERROR] {fname} 업로드 실패: {r.status_code}")
+              if not r.ok:
+                  print(f"[ERROR] {fname} 업로드 실패: {r.status_code} (기존 사본 유지)")
                   print(r.text[:300])
-                  sys.exit(1)
+                  failed.append(fname)
+                  continue
+              print(f"[OK]  Uploaded {fname} ({len(content):,} chars)")
+              for uid in old_ids.get(fname, []):
+                  d = requests.delete(
+                      f"{base}/organizations/{org}/projects/{proj}/docs/{uid}", headers=headers)
+                  print(f"[DEL] old {fname}: HTTP {d.status_code}")
+
+          if failed:
+              print(f"::error::업로드 실패 {len(failed)}건: {failed}")
+              sys.exit(1)
 
           print("ECOS + KOSIS + macro sync complete!")
           PYEOF
