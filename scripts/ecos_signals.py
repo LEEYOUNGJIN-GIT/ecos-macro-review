@@ -443,7 +443,7 @@ def sig_08_business_cycle(d: dict) -> dict:
 def sig_09_industrial_production(d: dict) -> dict:
     """9. 산업생산 모멘텀 (광공업생산지수 전년비)
 
-    KOSIS_INDPRO_YOY 우선, 차단 시 ECOS 재배포(INDPRO_YOY, 401Y015/*AA/C)로 대체.
+    KOSIS_INDPRO_YOY 우선, 차단 시 ECOS 재배포(INDPRO_YOY, 901Y033/AB00/1)로 대체.
     """
     indpro, indpro_src = g_fallback(d, "KOSIS_INDPRO_YOY", "INDPRO_YOY")
     score    = score_0_10(indpro, -10.0, 15.0, invert=True) if indpro is not None else None

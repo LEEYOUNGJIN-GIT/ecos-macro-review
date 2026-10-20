@@ -70,6 +70,12 @@ jobs:
       - name: Step 1c-check - macro 통합 검증
         run: python scripts/validate_macro.py
 
+      - name: Step 1d - 통계코드 대조 (경고 전용: 시리즈 이름과 ECOS 응답 지표명 일치 여부)
+        continue-on-error: true
+        env:
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+        run: python scripts/verify_series_codes.py
+
       # ── 2단계: 신호 대시보드 생성 ─────────────────────────────────────────
       - name: Step 2 - Generate signals dashboard
         run: python scripts/ecos_signals.py
