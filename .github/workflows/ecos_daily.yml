@@ -70,7 +70,7 @@ jobs:
       - name: Step 1c-check - macro 통합 검증
         run: python scripts/validate_macro.py
 
-      - name: Step 1d - 통계코드 대조 (경고 전용: 시리즈 이름과 ECOS 응답 지표명 일치 여부)
+      - name: Step 1d - 통계코드 대조 (경고 전용, 시리즈 이름과 ECOS 응답 지표명 일치 여부)
         continue-on-error: true
         env:
           ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
