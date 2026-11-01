@@ -3,7 +3,8 @@ name: ECOS Daily Fetch
 on:
   schedule:
     # 매일 KST 06:10 (UTC 21:10 전날)
-    - cron: '10 21 * * *'
+    - cron: '17 15 * * *'   # UTC 15:17 = KST 00:17 (실측 지연 1.9~5.4h 감안, 06:30 브리핑 전 도착 목적)
+    - cron: '10 21 * * *'   # 보강 실행 (지연 포함 약 09시 도착)
   workflow_dispatch:
     inputs:
       reason:
