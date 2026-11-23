@@ -207,7 +207,6 @@ ecos-macro-review/
 │   ├── ecos_daily.yml             일일 데이터 수집 → 분석
 │   ├── discover_ecos.yml          ECOS 코드 조회 수동 실행용 (데이터 파이프라인과 무관)
 │   └── sync_claude_project.yml    Claude.ai 동기화
-└── claude_project_instructions.md
 ```
 
 ---
