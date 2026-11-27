@@ -1,0 +1,6 @@
+series_id,stat_code,item_code1,cycle,expect_name,status,result_code,rows_returned,item_name,probed_at,note
+USD_KRW_DAILY,731Y001,0000001,D,미국달러,UNVERIFIED,,,,,원/미국달러 매매기준율(일별). 기존 USD_KRW(731Y004 월평균)와 별개 계열 — 병합·대체 금지
+GOV_BOND_3Y_DAILY,817Y002,010200000,D,국고채|3년,UNVERIFIED,,,,,국고채 3년 일별(시장금리 일별). 기존 GOV_BOND_3Y(721Y001 월) 와 별개
+GOV_BOND_10Y_DAILY,817Y002,010210000,D,국고채|10년,UNVERIFIED,,,,,국고채 10년 일별. 기존 GOV_BOND_10Y(721Y001 월) 와 별개
+CD_91D_DAILY,817Y002,010502000,D,CD|91,UNVERIFIED,,,,,CD 91일 일별. 기존 CD_91D(721Y001 월) 와 별개
+BOK_BASE_RATE_DAILY,722Y001,0101000,D,기준금리,UNVERIFIED,,,,,기준금리 일별. 기존 BOK_BASE_RATE(722Y001 월) 와 별개

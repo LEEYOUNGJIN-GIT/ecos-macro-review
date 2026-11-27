@@ -1,0 +1,4 @@
+series_id,label,value,date,unit,stat_code,period,chg_prev,chg_mid,chg_yoy,note
+KOSIS_CPI_YOY,소비자물가 전년동월비,2.88,202609,%,DT_1J22003_T,M,-0.21,-0.28,0.78,fixture
+KOSIS_UNEMP_RATE,실업률,,202608,%,DT_1DA7002S_T80,M,,,,fixture (수집 실패 행)
+KOSIS_CLI_LEADING,선행지수 순환변동치,100.4,202608,지수,DT_1C8015_T,M,0.1,0.3,0.5,fixture
